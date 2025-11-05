@@ -1,0 +1,18 @@
+timestamp,farmer_id,insect,count,image_path
+2025-10-29_14-29-26,farmer_001,Whitefly,12,uploads\2025-10-29_14-29-26_farmer_001.jpg
+2025-10-29_14-52-16,farmer_001,Whitefly,12,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-10-29_14-52-16_farmer_001.jpg
+2025-10-29_15-36-18,farmer_001,Whitefly,8,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-10-29_15-36-18_farmer_001.jpg
+2025-11-05_09-46-14,farmer_001,Fungus gnat,1,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_09-46-14_farmer_001.jpg
+2025-11-05_09-46-17,farmer_001,Beetles,1,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_09-46-17_farmer_001.jpg
+2025-11-05_09-46-19,farmer_001,Fungus gnat,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_09-46-19_farmer_001.jpg
+2025-11-05_09-46-20,farmer_001,Fungus gnat,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_09-46-20_farmer_001.jpg
+2025-11-05_11-16-43,farmer_001,Fungus gnat,1,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-16-43_farmer_001.jpg
+2025-11-05_11-16-44,farmer_001,none,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-16-44_farmer_001.jpg
+2025-11-05_11-16-46,farmer_001,none,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-16-46_farmer_001.jpg
+2025-11-05_11-16-48,farmer_001,none,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-16-48_farmer_001.jpg
+2025-11-05_11-16-49,farmer_001,none,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-16-49_farmer_001.jpg
+2025-11-05_11-17-39,farmer_001,none,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-17-39_farmer_001.jpg
+2025-11-05_11-17-40,farmer_001,none,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-17-40_farmer_001.jpg
+2025-11-05_11-17-41,farmer_001,none,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-17-41_farmer_001.jpg
+2025-11-05_11-17-42,farmer_001,none,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-17-42_farmer_001.jpg
+2025-11-05_11-17-44,farmer_001,none,0,C:\Users\manic\OneDrive\Desktop\Python\ai_insect_platform\server\uploads\2025-11-05_11-17-44_farmer_001.jpg
