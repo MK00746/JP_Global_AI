@@ -636,7 +636,7 @@ LOGIN_HTML = """
                 <img src="/static/images/logo.png" alt="JP Global Engineering">
             </div>
             
-            <h1 class="welcome-text">InsectDetect Platform</h1>
+            <h1 class="welcome-text">AI Pest & Disease Detection</h1>
             <p class="subtitle">Advanced Pest Monitoring System</p>
             
             {% with messages = get_flashed_messages() %}
@@ -1042,7 +1042,7 @@ DASH_HTML = """
     <nav class="navbar">
         <div class="navbar-brand">
             <img src="/static/images/logo.png" alt="JP Global">
-            <span class="navbar-title">InsectDetect Dashboard</span>
+            <span class="navbar-title">AI Insect Detecttion Dashboard</span>
         </div>
         <div class="navbar-user">
             <div class="user-info">
