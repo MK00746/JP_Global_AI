@@ -7,4 +7,5 @@ requests
 pillow
 pandas==2.2.3
 supabase==2.7.1
-httpx==0.27.2
+httpx==0.25.2
+
