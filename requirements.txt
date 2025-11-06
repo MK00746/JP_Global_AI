@@ -6,6 +6,11 @@ python-telegram-bot==20.7
 requests
 pillow
 pandas==2.2.3
-supabase==2.4.1
+
+
+supabase-py==1.0.3
+
+
 httpx==0.25.2
+
 

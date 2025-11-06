@@ -9,13 +9,15 @@ from flask import Flask, request, redirect, url_for, render_template_string, ses
 import pandas as pd
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from supabase import create_client, Client
+from supabase import create_client
+
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 
 APP_ROOT = Path(__file__).parent
