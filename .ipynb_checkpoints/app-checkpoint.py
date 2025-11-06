@@ -9,15 +9,6 @@ from flask import Flask, request, redirect, url_for, render_template_string, ses
 import pandas as pd
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from supabase import create_client, Client
-
-
-SUPABASE_URL = os.getenv("https://gkspjnsuswbhjqiusojv.supabase.co")
-SUPABASE_KEY = os.getenv("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdrc3BqbnN1c3diaGpxaXVzb2p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzOTUzMTUsImV4cCI6MjA3Nzk3MTMxNX0.9shlInD2gNX_AhZuNj4CnGxD_OFhUXLYnqobOwVVcAs")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
 APP_ROOT = Path(__file__).parent
 UPLOAD_FOLDER = APP_ROOT / "uploads"
 CSV_PATH = UPLOAD_FOLDER / "detections.csv"
@@ -306,17 +297,6 @@ def login():
 def health():
     return {"ok": True}
 
-def upload_image_to_supabase(filename: str, data: bytes):
-    bucket = "insect-images"
-    file_path = f"insects/{filename}"
-
-    supabase.storage.from_(bucket).upload(file_path, data, {
-        "content-type": "image/jpeg"
-    })
-
-    public_url = supabase.storage.from_(bucket).get_public_url(file_path)
-    return public_url
-
 @app.route("/upload", methods=["POST"])
 def upload():
     data = None
@@ -349,37 +329,27 @@ def upload():
             image_b64 = None
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             filename = f"{timestamp}_{farmer_id}.jpg"
-            file_bytes = f.read()
-
-            # Upload to Supabase instead of local storage
-            public_url = upload_image_to_supabase(filename, file_bytes)
-
-            append_record(timestamp, farmer_id, insect, count, public_url)
-            return {"status": "ok", "image_url": public_url}, 200
-
+            save_path = UPLOAD_FOLDER / filename
+            f.save(save_path)
+            image_path_to_save = save_path
+            append_record(timestamp, farmer_id, insect, count, image_path_to_save)
+            return {"status":"ok", "image_saved": str(save_path)}, 200
         else:
             image_b64 = None
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    image_url = ""
-
+    image_path = ""
     if image_b64:
         filename = f"{timestamp}_{(farmer_id or 'unknown')}.jpg"
-    try:
-        file_bytes = base64.b64decode(image_b64)
-        image_url = upload_image_to_supabase(filename, file_bytes)
-    except Exception as e:
-        return {"error": "image upload failed", "detail": str(e)}, 500
+        image_path = UPLOAD_FOLDER / filename
+        try:
+            with open(image_path, "wb") as fh:
+                fh.write(base64.b64decode(image_b64))
+        except Exception as e:
+            return {"error":"image save failed", "detail":str(e)}, 500
 
-    append_record(timestamp, farmer_id, insect, count, image_url)
-
-    return {
-        "status": "ok",
-        "farmer_id": farmer_id,
-        "image_url": image_url,
-        "insect": insect,
-        "count": count
-    }, 200
+    append_record(timestamp, farmer_id, insect, count, image_path)
+    return {"status":"ok", "farmer_id": farmer_id, "saved": str(image_path)}, 200
 
 @app.route('/api/upload_result', methods=['POST'])
 def upload_result():
