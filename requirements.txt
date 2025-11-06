@@ -8,7 +8,7 @@ pillow
 pandas==2.2.3
 
 
-supabase-py==1.0.3
+supabase==1.0.3
 
 
 httpx==0.25.2
