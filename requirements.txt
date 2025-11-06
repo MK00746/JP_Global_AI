@@ -2,15 +2,16 @@ Flask==3.0.0
 flask-cors==4.0.0
 werkzeug==3.0.1
 gunicorn==21.2.0
-python-telegram-bot==20.7
+
+# ✅ Compatible Telegram Bot version
+python-telegram-bot==20.4
+
 requests
 pillow
 pandas==2.2.3
 
-
+# ✅ Correct Supabase client (sync Flask-safe)
 supabase==1.0.3
 
-
-httpx==0.25.2
-
-
+# ✅ Version compatible with both PTB 20.4 and Supabase
+httpx==0.23.3
