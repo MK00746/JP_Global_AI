@@ -3,18 +3,18 @@ flask-cors==4.0.0
 werkzeug==3.0.1
 gunicorn==21.2.0
 
-# your bot (works with httpx 0.25.x)
-python-telegram-bot==20.7
+# Telegram bot version that matches Supabase httpx range
+python-telegram-bot==20.4
 
 requests
 pillow
 pandas==2.2.3
 
-# Supabase client stack - MUST match each other
+# Supabase stack (MUST stay together)
 supabase==2.4.1
 gotrue==2.4.2
 storage3==0.7.3
 postgrest==0.13.0
 
-# HTTP client that works with both supabase & telegram bot
-httpx==0.25.2
+# Shared http client version that satisfies all dependencies
+httpx==0.24.1
