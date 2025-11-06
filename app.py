@@ -332,13 +332,17 @@ def upload():
         device = get_device_by_key(device_key)
         if not device:
             return {"error":"invalid device_key"}, 403
+
         farmer_id = device[3]
-        insect = data.get("insect","unknown")
+        insect = data.get("insect", "unknown")
         try:
-            count = int(data.get("count",0))
+            count = int(data.get("count", 0))
         except:
             count = 0
-        image_b64 = data.get("image")
+
+        # ✅ Accept both "image" and "image_b64"
+        image_b64 = data.get("image_b64") or data.get("image")
+
     else:
         farmer_id = request.form.get("farmer_id", "unknown")
         insect = request.form.get("insect", "unknown")
@@ -346,27 +350,29 @@ def upload():
             count = int(request.form.get("count", 0))
         except:
             count = 0
+
+        # Multipart upload case (telegram / android client)
         if 'image' in request.files:
             f = request.files['image']
-            image_b64 = None
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             filename = f"{timestamp}_{farmer_id}.jpg"
             file_bytes = f.read()
 
-            # Upload to Supabase instead of local storage
             public_url = upload_image_to_supabase(filename, file_bytes)
-
             append_record(timestamp, farmer_id, insect, count, public_url)
+
             return {"status": "ok", "image_url": public_url}, 200
 
-        else:
-            image_b64 = None
+        # ✅ JSON upload case (your browser test)
+        image_b64 = request.form.get("image_b64")
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    image_url = ""
 
-    if image_b64:
-        filename = f"{timestamp}_{(farmer_id or 'unknown')}.jpg"
+    if not image_b64:
+        return {"error": "No image data received"}, 400
+
+    filename = f"{timestamp}_{farmer_id}.jpg"
+
     try:
         file_bytes = base64.b64decode(image_b64)
         image_url = upload_image_to_supabase(filename, file_bytes)
