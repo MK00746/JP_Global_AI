@@ -12,8 +12,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from supabase import create_client, Client
 
 
-SUPABASE_URL = os.getenv("https://gkspjnsuswbhjqiusojv.supabase.co")
-SUPABASE_KEY = os.getenv("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdrc3BqbnN1c3diaGpxaXVzb2p2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIzOTUzMTUsImV4cCI6MjA3Nzk3MTMxNX0.9shlInD2gNX_AhZuNj4CnGxD_OFhUXLYnqobOwVVcAs")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
