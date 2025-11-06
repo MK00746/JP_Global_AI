@@ -321,73 +321,55 @@ def upload_image_to_supabase(filename: str, data: bytes):
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    data = None
-    try:
-        data = request.get_json(force=False, silent=True)
-    except Exception:
-        data = None
+    data = request.get_json(silent=True)
 
-    if data and 'device_key' in data:
-        device_key = data.get('device_key')
-        device = get_device_by_key(device_key)
-        if not device:
-            return {"error":"invalid device_key"}, 403
-
-        farmer_id = device[3]
+    # ✅ Case 1: JSON body (mobile / PWA / JS test form)
+    if data:
+        farmer_id = data.get("farmer_id", "unknown")
         insect = data.get("insect", "unknown")
+        count = int(data.get("count", 0))
+        image_b64 = data.get("image_b64")
+
+        if not image_b64:
+            return {"error": "No image data received"}, 400
+
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"{timestamp}_{farmer_id}.jpg"
+
         try:
-            count = int(data.get("count", 0))
-        except:
-            count = 0
+            file_bytes = base64.b64decode(image_b64)
+            image_url = upload_image_to_supabase(filename, file_bytes)
+        except Exception as e:
+            return {"error": "image upload failed", "detail": str(e)}, 500
 
-        # ✅ Accept both "image" and "image_b64"
-        image_b64 = data.get("image_b64") or data.get("image")
+        append_record(timestamp, farmer_id, insect, count, image_url)
 
-    else:
+        return {
+            "status": "ok",
+            "farmer_id": farmer_id,
+            "image_url": image_url,
+            "insect": insect,
+            "count": count
+        }, 200
+
+    # ✅ Case 2: Form upload (curl / device HTTP multipart)
+    if 'image' in request.files:
+        f = request.files['image']
         farmer_id = request.form.get("farmer_id", "unknown")
         insect = request.form.get("insect", "unknown")
-        try:
-            count = int(request.form.get("count", 0))
-        except:
-            count = 0
+        count = int(request.form.get("count", 0))
 
-        # Multipart upload case (telegram / android client)
-        if 'image' in request.files:
-            f = request.files['image']
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            filename = f"{timestamp}_{farmer_id}.jpg"
-            file_bytes = f.read()
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"{timestamp}_{farmer_id}.jpg"
+        file_bytes = f.read()
 
-            public_url = upload_image_to_supabase(filename, file_bytes)
-            append_record(timestamp, farmer_id, insect, count, public_url)
-
-            return {"status": "ok", "image_url": public_url}, 200
-
-        # ✅ JSON upload case (your browser test)
-        image_b64 = request.form.get("image_b64")
-
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-    if not image_b64:
-        return {"error": "No image data received"}, 400
-
-    filename = f"{timestamp}_{farmer_id}.jpg"
-
-    try:
-        file_bytes = base64.b64decode(image_b64)
         image_url = upload_image_to_supabase(filename, file_bytes)
-    except Exception as e:
-        return {"error": "image upload failed", "detail": str(e)}, 500
+        append_record(timestamp, farmer_id, insect, count, image_url)
+        return {"status": "ok", "image_url": image_url}, 200
 
-    append_record(timestamp, farmer_id, insect, count, image_url)
+    # If neither JSON nor file upload was valid → error
+    return {"error": "Invalid upload format"}, 400
 
-    return {
-        "status": "ok",
-        "farmer_id": farmer_id,
-        "image_url": image_url,
-        "insect": insect,
-        "count": count
-    }, 200
 
 @app.route('/api/upload_result', methods=['POST'])
 def upload_result():
