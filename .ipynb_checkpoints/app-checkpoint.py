@@ -9,13 +9,15 @@ from flask import Flask, request, redirect, url_for, render_template_string, ses
 import pandas as pd
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from supabase import create_client, Client
+from supabase import create_client
+
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 
 APP_ROOT = Path(__file__).parent
@@ -42,10 +44,17 @@ def read_df():
         df['count'] = 0
     return df
 
-def append_record(timestamp, farmer_id, insect, count, image_path):
-    init_csv()
-    row = {"timestamp": timestamp, "farmer_id": farmer_id, "insect": insect, "count": int(count), "image_path": str(image_path)}
-    pd.DataFrame([row]).to_csv(CSV_PATH, mode="a", index=False, header=not CSV_PATH.exists())
+from supabase import create_client
+
+def append_record(timestamp, farmer_id, insect, count, image_url):
+    supabase.table("insect_records").insert({
+        "timestamp": timestamp,
+        "farmer_id": farmer_id,
+        "insect": insect,
+        "count": count,
+        "image_url": image_url
+    }).execute()
+
 
 def init_devices_table():
     conn = sqlite3.connect(USERS_DB)
@@ -177,6 +186,12 @@ def index():
         return redirect(url_for("dashboard"))
     return redirect(url_for("login"))
 
+
+def load_records(farmer_id):
+    res = supabase.table("insect_records").select("*").eq("farmer_id", farmer_id).order("timestamp", desc=True).execute()
+    return res.data or []
+
+
 @app.route("/login_api", methods=["POST"])
 def login_api():
     data = request.get_json(silent=True) or request.form
@@ -198,15 +213,17 @@ def api_farmer_data():
     farmer_id = request.args.get("farmer_id")
     if not farmer_id:
         return {"records": []}
-    df = read_df()
-    farmer_df = df[df['farmer_id'] == farmer_id].copy()
-    def make_url(p):
-        if not p or pd.isna(p) or str(p) == '':
-            return ""
-        fname = str(p).replace("\\", "/").split("/")[-1]
-        return request.host_url.rstrip("/") + "/uploads/" + fname
-    farmer_df['image_url'] = farmer_df['image_path'].apply(make_url)
-    return {"records": farmer_df.to_dict(orient="records")}
+
+    response = supabase.table("insect_records") \
+        .select("*") \
+        .eq("farmer_id", farmer_id) \
+        .order("timestamp", desc=True) \
+        .execute()
+
+    records = response.data or []
+    return {"records": records}
+
+
 
 @app.route("/logout")
 def logout():
@@ -223,10 +240,13 @@ def dashboard():
     if user['role'] == 'admin':
         return redirect(url_for("admin"))
 
-    df = read_df()
-    farmer_df = df[df['farmer_id'] == user['farmer_id']].copy()
-    total_records = len(farmer_df)
-    summary = farmer_df.groupby("insect")["count"].sum().reset_index()
+    records = load_records(user['farmer_id'])
+    total_records = len(records)
+
+    # Convert to DataFrame only for summarizing
+    df = pd.DataFrame(records)
+    summary = df.groupby("insect")["count"].sum().reset_index().to_dict(orient="records")
+
 
     farmer_df['image_path'] = farmer_df['image_path'].apply(lambda p: str(p).replace('\\','/'))
 
@@ -234,10 +254,12 @@ def dashboard():
         DASH_HTML,
         username=user['username'],
         farmer_id=user['farmer_id'],
-        df=farmer_df.to_dict(orient='records'),
-        summary=summary.to_dict(orient='records'),
+        df=records,
+        summary=summary,
         total_records=total_records
     )
+
+
 
 @app.route("/admin")
 def admin():
@@ -319,67 +341,55 @@ def upload_image_to_supabase(filename: str, data: bytes):
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    data = None
-    try:
-        data = request.get_json(force=False, silent=True)
-    except Exception:
-        data = None
+    data = request.get_json(silent=True)
 
-    if data and 'device_key' in data:
-        device_key = data.get('device_key')
-        device = get_device_by_key(device_key)
-        if not device:
-            return {"error":"invalid device_key"}, 403
-        farmer_id = device[3]
-        insect = data.get("insect","unknown")
+    # ✅ Case 1: JSON body (mobile / PWA / JS test form)
+    if data:
+        farmer_id = data.get("farmer_id", "unknown")
+        insect = data.get("insect", "unknown")
+        count = int(data.get("count", 0))
+        image_b64 = data.get("image_b64")
+
+        if not image_b64:
+            return {"error": "No image data received"}, 400
+
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"{timestamp}_{farmer_id}.jpg"
+
         try:
-            count = int(data.get("count",0))
-        except:
-            count = 0
-        image_b64 = data.get("image")
-    else:
+            file_bytes = base64.b64decode(image_b64)
+            image_url = upload_image_to_supabase(filename, file_bytes)
+        except Exception as e:
+            return {"error": "image upload failed", "detail": str(e)}, 500
+
+        append_record(timestamp, farmer_id, insect, count, image_url)
+
+        return {
+            "status": "ok",
+            "farmer_id": farmer_id,
+            "image_url": image_url,
+            "insect": insect,
+            "count": count
+        }, 200
+
+    # ✅ Case 2: Form upload (curl / device HTTP multipart)
+    if 'image' in request.files:
+        f = request.files['image']
         farmer_id = request.form.get("farmer_id", "unknown")
         insect = request.form.get("insect", "unknown")
-        try:
-            count = int(request.form.get("count", 0))
-        except:
-            count = 0
-        if 'image' in request.files:
-            f = request.files['image']
-            image_b64 = None
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            filename = f"{timestamp}_{farmer_id}.jpg"
-            file_bytes = f.read()
+        count = int(request.form.get("count", 0))
 
-            # Upload to Supabase instead of local storage
-            public_url = upload_image_to_supabase(filename, file_bytes)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"{timestamp}_{farmer_id}.jpg"
+        file_bytes = f.read()
 
-            append_record(timestamp, farmer_id, insect, count, public_url)
-            return {"status": "ok", "image_url": public_url}, 200
-
-        else:
-            image_b64 = None
-
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    image_url = ""
-
-    if image_b64:
-        filename = f"{timestamp}_{(farmer_id or 'unknown')}.jpg"
-    try:
-        file_bytes = base64.b64decode(image_b64)
         image_url = upload_image_to_supabase(filename, file_bytes)
-    except Exception as e:
-        return {"error": "image upload failed", "detail": str(e)}, 500
+        append_record(timestamp, farmer_id, insect, count, image_url)
+        return {"status": "ok", "image_url": image_url}, 200
 
-    append_record(timestamp, farmer_id, insect, count, image_url)
+    # If neither JSON nor file upload was valid → error
+    return {"error": "Invalid upload format"}, 400
 
-    return {
-        "status": "ok",
-        "farmer_id": farmer_id,
-        "image_url": image_url,
-        "insect": insect,
-        "count": count
-    }, 200
 
 @app.route('/api/upload_result', methods=['POST'])
 def upload_result():
@@ -960,10 +970,10 @@ DASH_HTML = """
         }
         
         .image-thumb {
-            width: 80px;
+            width: 120px;
             height: 60px;
             object-fit: cover;
-            border-radius: 8px;
+            border-radius: 6px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             cursor: pointer;
             transition: all 0.3s ease;
@@ -1156,13 +1166,15 @@ DASH_HTML = """
                         <td>{{ row.insect }}</td>
                         <td><span class="badge badge-count">{{ row.count }}</span></td>
                         <td>
-                            {% if row.image_path %}
-                                {% set fname = row.image_path.split('/')[-1] %}
-                                <img src="/uploads/{{ fname }}" class="image-thumb" onclick="openModal('/uploads/{{ fname }}')" alt="Detection">
+                            {% if row.image_url %}
+                                <img src="{{ row.image_url }}" class="image-thumb" 
+                                     onclick="openModal('{{ row.image_url }}')" 
+                                     alt="Detection">
                             {% else %}
                                 <span style="color: rgba(255,255,255,0.3);">No image</span>
                             {% endif %}
                         </td>
+
                     </tr>
                     {% endfor %}
                 </tbody>

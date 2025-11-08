@@ -2,7 +2,19 @@ Flask==3.0.0
 flask-cors==4.0.0
 werkzeug==3.0.1
 gunicorn==21.2.0
-python-telegram-bot==20.7
+
+# Telegram bot aligned to httpx range
+python-telegram-bot==20.4
+
 requests
 pillow
 pandas==2.2.3
+
+# Supabase stack (versions must align)
+supabase==2.4.1
+gotrue==2.4.2
+storage3==0.7.3
+postgrest==0.14.0
+
+# Shared http layer (the ONLY version everyone accepts)
+httpx==0.24.1

@@ -186,12 +186,6 @@ def index():
         return redirect(url_for("dashboard"))
     return redirect(url_for("login"))
 
-
-def load_records(farmer_id):
-    res = supabase.table("insect_records").select("*").eq("farmer_id", farmer_id).order("timestamp", desc=True).execute()
-    return res.data or []
-
-
 @app.route("/login_api", methods=["POST"])
 def login_api():
     data = request.get_json(silent=True) or request.form
@@ -213,17 +207,15 @@ def api_farmer_data():
     farmer_id = request.args.get("farmer_id")
     if not farmer_id:
         return {"records": []}
-
-    response = supabase.table("insect_records") \
-        .select("*") \
-        .eq("farmer_id", farmer_id) \
-        .order("timestamp", desc=True) \
-        .execute()
-
-    records = response.data or []
-    return {"records": records}
-
-
+    df = read_df()
+    farmer_df = df[df['farmer_id'] == farmer_id].copy()
+    def make_url(p):
+        if not p or pd.isna(p) or str(p) == '':
+            return ""
+        fname = str(p).replace("\\", "/").split("/")[-1]
+        return request.host_url.rstrip("/") + "/uploads/" + fname
+    farmer_df['image_url'] = farmer_df['image_path'].apply(make_url)
+    return {"records": farmer_df.to_dict(orient="records")}
 
 @app.route("/logout")
 def logout():
@@ -240,13 +232,10 @@ def dashboard():
     if user['role'] == 'admin':
         return redirect(url_for("admin"))
 
-    records = load_records(user['farmer_id'])
-    total_records = len(records)
-
-    # Convert to DataFrame only for summarizing
-    df = pd.DataFrame(records)
-    summary = df.groupby("insect")["count"].sum().reset_index().to_dict(orient="records")
-
+    df = read_df()
+    farmer_df = df[df['farmer_id'] == user['farmer_id']].copy()
+    total_records = len(farmer_df)
+    summary = farmer_df.groupby("insect")["count"].sum().reset_index()
 
     farmer_df['image_path'] = farmer_df['image_path'].apply(lambda p: str(p).replace('\\','/'))
 
@@ -254,12 +243,10 @@ def dashboard():
         DASH_HTML,
         username=user['username'],
         farmer_id=user['farmer_id'],
-        df=records,
-        summary=summary,
+        df=farmer_df.to_dict(orient='records'),
+        summary=summary.to_dict(orient='records'),
         total_records=total_records
     )
-
-
 
 @app.route("/admin")
 def admin():
@@ -970,10 +957,10 @@ DASH_HTML = """
         }
         
         .image-thumb {
-            width: 120px;
+            width: 80px;
             height: 60px;
             object-fit: cover;
-            border-radius: 6px;
+            border-radius: 8px;
             border: 1px solid rgba(255, 255, 255, 0.1);
             cursor: pointer;
             transition: all 0.3s ease;
@@ -1166,15 +1153,13 @@ DASH_HTML = """
                         <td>{{ row.insect }}</td>
                         <td><span class="badge badge-count">{{ row.count }}</span></td>
                         <td>
-                            {% if row.image_url %}
-                                <img src="{{ row.image_url }}" class="image-thumb" 
-                                     onclick="openModal('{{ row.image_url }}')" 
-                                     alt="Detection">
+                            {% if row.image_path %}
+                                {% set fname = row.image_path.split('/')[-1] %}
+                                <img src="/uploads/{{ fname }}" class="image-thumb" onclick="openModal('/uploads/{{ fname }}')" alt="Detection">
                             {% else %}
                                 <span style="color: rgba(255,255,255,0.3);">No image</span>
                             {% endif %}
                         </td>
-
                     </tr>
                     {% endfor %}
                 </tbody>
