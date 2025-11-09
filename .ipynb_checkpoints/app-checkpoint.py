@@ -1,112 +1,29 @@
-# app.py
+# app.py - JP Global InsectDetect with Professional Sidebar Navigation
 import os, base64, sqlite3, uuid
-from datetime import datetime
-from io import BytesIO
+from datetime import datetime, timedelta
 from pathlib import Path
 from flask_cors import CORS
-
-from flask import Flask, request, redirect, url_for, render_template_string, session, flash, send_from_directory
+from flask import Flask, request, redirect, url_for, render_template_string, session, flash, send_from_directory, jsonify
 import pandas as pd
 from werkzeug.security import generate_password_hash, check_password_hash
-
 from supabase import create_client
 
-
-
+# Supabase Configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
-
+# App Configuration
 APP_ROOT = Path(__file__).parent
 UPLOAD_FOLDER = APP_ROOT / "uploads"
-CSV_PATH = UPLOAD_FOLDER / "detections.csv"
 USERS_DB = APP_ROOT / "users.db"
-
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SESSION_SECRET", "replace_with_random_secret_in_prod")
+CORS(app)
 
-def init_csv():
-    if not CSV_PATH.exists():
-        df = pd.DataFrame(columns=["timestamp", "farmer_id", "insect", "count", "image_path"])
-        df.to_csv(CSV_PATH, index=False)
-
-def read_df():
-    init_csv()
-    df = pd.read_csv(CSV_PATH)
-    if 'count' in df.columns:
-        df['count'] = pd.to_numeric(df['count'], errors='coerce').fillna(0).astype(int)
-    else:
-        df['count'] = 0
-    return df
-
-from supabase import create_client
-
-def append_record(timestamp, farmer_id, insect, count, image_url):
-    supabase.table("insect_records").insert({
-        "timestamp": timestamp,
-        "farmer_id": farmer_id,
-        "insect": insect,
-        "count": count,
-        "image_url": image_url
-    }).execute()
-
-
-def init_devices_table():
-    conn = sqlite3.connect(USERS_DB)
-    cur = conn.cursor()
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS devices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        device_name TEXT,
-        device_key TEXT UNIQUE,
-        farmer_id TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    """)
-    conn.commit()
-    conn.close()
-
-def create_device(device_name, farmer_id):
-    conn = sqlite3.connect(USERS_DB)
-    cur = conn.cursor()
-    device_key = uuid.uuid4().hex + uuid.uuid4().hex
-    cur.execute("INSERT INTO devices (device_name, device_key, farmer_id) VALUES (?,?,?)", (device_name, device_key, farmer_id))
-    conn.commit()
-    cur.execute("SELECT id, device_key FROM devices WHERE device_key=?", (device_key,))
-    row = cur.fetchone()
-    conn.close()
-    return {"id": row[0], "device_key": row[1]}
-
-def get_all_devices():
-    conn = sqlite3.connect(USERS_DB)
-    cur = conn.cursor()
-    cur.execute("SELECT id, device_name, device_key, farmer_id, created_at FROM devices ORDER BY created_at DESC")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-def get_device_by_key(device_key):
-    conn = sqlite3.connect(USERS_DB)
-    cur = conn.cursor()
-    cur.execute("SELECT id, device_name, device_key, farmer_id FROM devices WHERE device_key=?", (device_key,))
-    row = cur.fetchone()
-    conn.close()
-    return row
-
-def regenerate_device_key(device_id):
-    conn = sqlite3.connect(USERS_DB)
-    cur = conn.cursor()
-    new_key = uuid.uuid4().hex + uuid.uuid4().hex
-    cur.execute("UPDATE devices SET device_key=? WHERE id=?", (new_key, device_id))
-    conn.commit()
-    conn.close()
-    return new_key
-
+# Database Helper Functions
 def init_users_db():
     conn = sqlite3.connect(USERS_DB)
     cur = conn.cursor()
@@ -117,6 +34,15 @@ def init_users_db():
       password_hash TEXT,
       role TEXT,
       farmer_id TEXT
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS devices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_name TEXT,
+        device_key TEXT UNIQUE,
+        farmer_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     """)
     conn.commit()
@@ -150,16 +76,127 @@ def get_user(username):
 def get_all_farmers():
     conn = sqlite3.connect(USERS_DB)
     cur = conn.cursor()
-    cur.execute("SELECT username, farmer_id FROM users WHERE role='farmer'")
+    cur.execute("SELECT id, username, farmer_id FROM users WHERE role='farmer'")
     rows = cur.fetchall()
     conn.close()
     return rows
 
-init_csv()
-init_users_db()
-init_devices_table()
-create_sample_users()
+def create_farmer(username, password, farmer_id):
+    conn = sqlite3.connect(USERS_DB)
+    cur = conn.cursor()
+    try:
+        cur.execute("INSERT INTO users (username,password_hash,role,farmer_id) VALUES (?,?,?,?)",
+                    (username, generate_password_hash(password), "farmer", farmer_id))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
 
+# Device Management Functions
+def create_device(device_name, farmer_id):
+    conn = sqlite3.connect(USERS_DB)
+    cur = conn.cursor()
+    device_key = uuid.uuid4().hex + uuid.uuid4().hex
+    cur.execute("INSERT INTO devices (device_name, device_key, farmer_id) VALUES (?,?,?)", (device_name, device_key, farmer_id))
+    conn.commit()
+    cur.execute("SELECT id, device_key FROM devices WHERE device_key=?", (device_key,))
+    row = cur.fetchone()
+    conn.close()
+    return {"id": row[0], "device_key": row[1]}
+
+def get_all_devices():
+    conn = sqlite3.connect(USERS_DB)
+    cur = conn.cursor()
+    cur.execute("SELECT id, device_name, device_key, farmer_id, created_at FROM devices ORDER BY created_at DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def get_farmer_devices(farmer_id):
+    conn = sqlite3.connect(USERS_DB)
+    cur = conn.cursor()
+    cur.execute("SELECT id, device_name, device_key, farmer_id, created_at FROM devices WHERE farmer_id=? ORDER BY created_at DESC", (farmer_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def get_device_by_key(device_key):
+    conn = sqlite3.connect(USERS_DB)
+    cur = conn.cursor()
+    cur.execute("SELECT id, device_name, device_key, farmer_id FROM devices WHERE device_key=?", (device_key,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+def get_device_by_id(device_id):
+    conn = sqlite3.connect(USERS_DB)
+    cur = conn.cursor()
+    cur.execute("SELECT id, device_name, device_key, farmer_id FROM devices WHERE id=?", (device_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+def regenerate_device_key(device_id):
+    conn = sqlite3.connect(USERS_DB)
+    cur = conn.cursor()
+    new_key = uuid.uuid4().hex + uuid.uuid4().hex
+    cur.execute("UPDATE devices SET device_key=? WHERE id=?", (new_key, device_id))
+    conn.commit()
+    conn.close()
+    return new_key
+
+# Supabase Data Functions
+def load_records(farmer_id=None, device_id=None):
+    """Load records from Supabase, optionally filtered by farmer_id or device_id"""
+    try:
+        if device_id:
+            # Filter by specific device_id
+            res = supabase.table("insect_records").select("*").eq("device_id", str(device_id)).order("timestamp", desc=True).execute()
+        elif farmer_id:
+            # Filter by farmer_id
+            res = supabase.table("insect_records").select("*").eq("farmer_id", farmer_id).order("timestamp", desc=True).execute()
+        else:
+            # Get all records
+            res = supabase.table("insect_records").select("*").order("timestamp", desc=True).execute()
+        return res.data or []
+    except:
+        return []
+
+def append_record(timestamp, farmer_id, insect, count, image_url, device_id=None):
+    """Append record to Supabase with optional device_id"""
+    try:
+        record = {
+            "timestamp": timestamp,
+            "farmer_id": farmer_id,
+            "insect": insect,
+            "count": count,
+            "image_url": image_url
+        }
+        if device_id:
+            record["device_id"] = str(device_id)
+        
+        supabase.table("insect_records").insert(record).execute()
+    except Exception as e:
+        print(f"Error inserting record: {e}")
+
+def upload_image_to_supabase(filename: str, data: bytes):
+    """Upload image to Supabase storage"""
+    bucket = "insect-images"
+    file_path = f"insects/{filename}"
+    
+    try:
+        supabase.storage.from_(bucket).upload(file_path, data, {
+            "content-type": "image/jpeg"
+        })
+        public_url = supabase.storage.from_(bucket).get_public_url(file_path)
+        return public_url
+    except Exception as e:
+        print(f"Upload error: {e}")
+        return None
+
+# Session Management
 def login_user(username):
     session['username'] = username
 
@@ -175,137 +212,19 @@ def current_user():
 def logout_user():
     session.pop('username', None)
 
-CORS(app)
+# Initialize Database
+init_users_db()
+create_sample_users()
 
+# Routes
 @app.route("/")
 def index():
     user = current_user()
     if user:
         if user.get("role") == "admin":
-            return redirect(url_for("admin"))
-        return redirect(url_for("dashboard"))
+            return redirect(url_for("admin_overview"))
+        return redirect(url_for("farmer_overview"))
     return redirect(url_for("login"))
-
-
-def load_records(farmer_id):
-    res = supabase.table("insect_records").select("*").eq("farmer_id", farmer_id).order("timestamp", desc=True).execute()
-    return res.data or []
-
-
-@app.route("/login_api", methods=["POST"])
-def login_api():
-    data = request.get_json(silent=True) or request.form
-    username = data.get("username")
-    password = data.get("password")
-    if not username or not password:
-        return {"success": False, "error": "missing credentials"}, 400
-    user = get_user(username)
-    if not user:
-        return {"success": False, "error": "invalid creds"}, 401
-    _, uname, password_hash, role, farmer_id = user
-    if check_password_hash(password_hash, password):
-        return {"success": True, "role": role, "farmer_id": farmer_id}
-    else:
-        return {"success": False, "error": "invalid creds"}, 401
-
-@app.route("/api/farmer_data", methods=["GET"])
-def api_farmer_data():
-    farmer_id = request.args.get("farmer_id")
-    if not farmer_id:
-        return {"records": []}
-
-    response = supabase.table("insect_records") \
-        .select("*") \
-        .eq("farmer_id", farmer_id) \
-        .order("timestamp", desc=True) \
-        .execute()
-
-    records = response.data or []
-    return {"records": records}
-
-
-
-@app.route("/logout")
-def logout():
-    logout_user()
-    flash("Logged out", "info")
-    return redirect(url_for("login"))
-
-@app.route("/dashboard")
-def dashboard():
-    user = current_user()
-    if not user:
-        return redirect(url_for("login"))
-
-    if user['role'] == 'admin':
-        return redirect(url_for("admin"))
-
-    records = load_records(user['farmer_id'])
-    total_records = len(records)
-
-    # Convert to DataFrame only for summarizing
-    df = pd.DataFrame(records)
-    summary = df.groupby("insect")["count"].sum().reset_index().to_dict(orient="records")
-
-
-    farmer_df['image_path'] = farmer_df['image_path'].apply(lambda p: str(p).replace('\\','/'))
-
-    return render_template_string(
-        DASH_HTML,
-        username=user['username'],
-        farmer_id=user['farmer_id'],
-        df=records,
-        summary=summary,
-        total_records=total_records
-    )
-
-
-
-@app.route("/admin")
-def admin():
-    user = current_user()
-    if not user or user['role'] != 'admin':
-        return redirect(url_for("login"))
-
-    df = read_df()
-    summary = df.groupby("insect")["count"].sum().reset_index()
-    farmers = get_all_farmers()
-    devices = get_all_devices()
-
-    return render_template_string(
-        ADMIN_HTML,
-        farmers=farmers,
-        devices=devices,
-        df=df.to_dict(orient='records'),
-        summary=summary.to_dict(orient='records')
-    )
-
-@app.route("/admin/create_device", methods=["POST"])
-def admin_create_device():
-    user = current_user()
-    if not user or user['role'] != 'admin':
-        return redirect(url_for("login"))
-    device_name = request.form.get("device_name")
-    farmer_id = request.form.get("farmer_id")
-    if not device_name or not farmer_id:
-        flash("Device name and farmer required", "danger")
-        return redirect(url_for("admin"))
-    res = create_device(device_name, farmer_id)
-    flash(f"Device created. Key: {res['device_key']}", "success")
-    return redirect(url_for("admin"))
-
-@app.route("/admin/regenerate_key", methods=["POST"])
-def admin_regenerate_key():
-    user = current_user()
-    if not user or user['role'] != 'admin':
-        return redirect(url_for("login"))
-    device_id = request.form.get("device_id")
-    if not device_id:
-        flash("device_id required", "danger")
-        return redirect(url_for("admin"))
-    new_key = regenerate_device_key(device_id)
-    flash("Key regenerated. New key: " + new_key, "success")
-    return redirect(url_for("admin"))
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -316,54 +235,403 @@ def login():
         if user and check_password_hash(user[2], password):
             login_user(username)
             if user[3] == "admin":
-                return redirect(url_for("admin"))
+                return redirect(url_for("admin_overview"))
             else:
-                return redirect(url_for("dashboard"))
+                return redirect(url_for("farmer_overview"))
         else:
             flash("Invalid credentials", "danger")
-
+    
+    from html_templates import LOGIN_HTML
     return render_template_string(LOGIN_HTML)
 
-@app.route("/health")
-def health():
-    return {"ok": True}
+@app.route("/logout")
+def logout():
+    logout_user()
+    flash("Logged out", "info")
+    return redirect(url_for("login"))
 
-def upload_image_to_supabase(filename: str, data: bytes):
-    bucket = "insect-images"
-    file_path = f"insects/{filename}"
+# ==================== ADMIN ROUTES ====================
+@app.route("/admin/overview")
+def admin_overview():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    records = load_records()
+    devices = get_all_devices()
+    farmers = get_all_farmers()
+    
+    total_detections = len(records)
+    total_devices = len(devices)
+    total_farmers = len(farmers)
+    
+    if len(records) > 0:
+        df = pd.DataFrame(records)
+        df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
+        total_insects = int(df["count"].sum())
+        insect_summary = df.groupby("insect")["count"].sum().reset_index().to_dict(orient="records")
+    else:
+        total_insects = 0
+        insect_summary = []
+    
+    from html_templates import ADMIN_OVERVIEW_HTML
+    return render_template_string(ADMIN_OVERVIEW_HTML, 
+                                   username=user['username'],
+                                   total_detections=total_detections,
+                                   total_devices=total_devices,
+                                   total_farmers=total_farmers,
+                                   total_insects=total_insects,
+                                   insect_summary=insect_summary)
 
-    supabase.storage.from_(bucket).upload(file_path, data, {
-        "content-type": "image/jpeg"
+@app.route("/admin/devices")
+def admin_devices():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    devices = get_all_devices()
+    farmers = get_all_farmers()
+    
+    from html_templates import ADMIN_DEVICES_HTML
+    return render_template_string(ADMIN_DEVICES_HTML, 
+                                   username=user['username'],
+                                   devices=devices,
+                                   farmers=farmers)
+
+@app.route("/admin/device/<int:device_id>/analytics")
+def admin_device_analytics(device_id):
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    device = get_device_by_id(device_id)
+    if not device:
+        flash("Device not found", "danger")
+        return redirect(url_for("admin_devices"))
+    
+    records = load_records(device_id=device_id)
+    
+    if len(records) > 0:
+        df = pd.DataFrame(records)
+        df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
+        summary = df.groupby("insect")["count"].sum().reset_index().to_dict(orient="records")
+    else:
+        summary = []
+    
+    from html_templates import ADMIN_DEVICE_ANALYTICS_HTML
+    return render_template_string(ADMIN_DEVICE_ANALYTICS_HTML,
+                                   username=user['username'],
+                                   device=device,
+                                   records=records,
+                                   summary=summary)
+
+@app.route("/admin/dataset")
+def admin_dataset():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    farmers = get_all_farmers()
+    selected_farmer = request.args.get("farmer_id", "")
+    
+    if selected_farmer:
+        records = load_records(farmer_id=selected_farmer)
+    else:
+        records = load_records()
+    
+    from html_templates import ADMIN_DATASET_HTML
+    return render_template_string(ADMIN_DATASET_HTML,
+                                   username=user['username'],
+                                   records=records,
+                                   farmers=farmers,
+                                   selected_farmer=selected_farmer)
+
+@app.route("/admin/images")
+def admin_images():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    farmers = get_all_farmers()
+    selected_farmer = request.args.get("farmer_id", "")
+    
+    if selected_farmer:
+        records = load_records(farmer_id=selected_farmer)
+    else:
+        records = load_records()
+    
+    # Filter records with images only
+    records_with_images = [r for r in records if r.get("image_url")]
+    
+    from html_templates import ADMIN_IMAGES_HTML
+    return render_template_string(ADMIN_IMAGES_HTML,
+                                   username=user['username'],
+                                   records=records_with_images,
+                                   farmers=farmers,
+                                   selected_farmer=selected_farmer)
+
+@app.route("/admin/users")
+def admin_users():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    farmers = get_all_farmers()
+    
+    from html_templates import ADMIN_USERS_HTML
+    return render_template_string(ADMIN_USERS_HTML,
+                                   username=user['username'],
+                                   farmers=farmers)
+
+@app.route("/admin/create_farmer", methods=["POST"])
+def admin_create_farmer():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    username = request.form.get("username")
+    password = request.form.get("password")
+    farmer_id = request.form.get("farmer_id")
+    
+    if not username or not password or not farmer_id:
+        flash("All fields are required", "danger")
+        return redirect(url_for("admin_users"))
+    
+    success = create_farmer(username, password, farmer_id)
+    if success:
+        flash(f"Farmer account created: {username}", "success")
+    else:
+        flash("Username already exists", "danger")
+    
+    return redirect(url_for("admin_users"))
+
+@app.route("/admin/create_device", methods=["POST"])
+def admin_create_device():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    device_name = request.form.get("device_name")
+    farmer_id = request.form.get("farmer_id")
+    
+    if not device_name or not farmer_id:
+        flash("Device name and farmer required", "danger")
+        return redirect(url_for("admin_devices"))
+    
+    res = create_device(device_name, farmer_id)
+    flash(f"Device created: {device_name} | Key: {res['device_key']}", "success")
+    return redirect(url_for("admin_devices"))
+
+@app.route("/admin/regenerate_key", methods=["POST"])
+def admin_regenerate_key():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    device_id = request.form.get("device_id")
+    if not device_id:
+        flash("device_id required", "danger")
+        return redirect(url_for("admin_devices"))
+    
+    new_key = regenerate_device_key(device_id)
+    flash(f"Key regenerated. New key: {new_key}", "success")
+    return redirect(url_for("admin_devices"))
+
+# ==================== FARMER ROUTES ====================
+@app.route("/farmer/overview")
+def farmer_overview():
+    user = current_user()
+    if not user or user['role'] != 'farmer':
+        return redirect(url_for("login"))
+    
+    records = load_records(farmer_id=user['farmer_id'])
+    
+    if len(records) > 0:
+        df = pd.DataFrame(records)
+        df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
+        
+        # Find insect with highest count
+        insect_totals = df.groupby("insect")["count"].sum()
+        top_insect = insect_totals.idxmax() if len(insect_totals) > 0 else "N/A"
+        top_count = int(insect_totals.max()) if len(insect_totals) > 0 else 0
+        
+        total_count = int(df["count"].sum())
+        insect_summary = df.groupby("insect")["count"].sum().reset_index().to_dict(orient="records")
+    else:
+        top_insect = "N/A"
+        top_count = 0
+        total_count = 0
+        insect_summary = []
+    
+    from html_templates import FARMER_OVERVIEW_HTML
+    return render_template_string(FARMER_OVERVIEW_HTML,
+                                   username=user['username'],
+                                   farmer_id=user['farmer_id'],
+                                   total_detections=len(records),
+                                   total_count=total_count,
+                                   top_insect=top_insect,
+                                   top_count=top_count,
+                                   insect_summary=insect_summary)
+
+@app.route("/farmer/analysis")
+def farmer_analysis():
+    user = current_user()
+    if not user or user['role'] != 'farmer':
+        return redirect(url_for("login"))
+    
+    records = load_records(farmer_id=user['farmer_id'])
+    
+    from html_templates import FARMER_ANALYSIS_HTML
+    return render_template_string(FARMER_ANALYSIS_HTML,
+                                   username=user['username'],
+                                   farmer_id=user['farmer_id'],
+                                   records=records)
+
+@app.route("/farmer/dataset")
+def farmer_dataset():
+    user = current_user()
+    if not user or user['role'] != 'farmer':
+        return redirect(url_for("login"))
+    
+    devices = get_farmer_devices(user['farmer_id'])
+    selected_device = request.args.get("device_id", "")
+    
+    if selected_device:
+        records = load_records(device_id=selected_device)
+    else:
+        records = load_records(farmer_id=user['farmer_id'])
+    
+    from html_templates import FARMER_DATASET_HTML
+    return render_template_string(FARMER_DATASET_HTML,
+                                   username=user['username'],
+                                   records=records,
+                                   devices=devices,
+                                   selected_device=selected_device)
+
+@app.route("/farmer/images")
+def farmer_images():
+    user = current_user()
+    if not user or user['role'] != 'farmer':
+        return redirect(url_for("login"))
+    
+    devices = get_farmer_devices(user['farmer_id'])
+    selected_device = request.args.get("device_id", "")
+    
+    if selected_device:
+        records = load_records(device_id=selected_device)
+    else:
+        records = load_records(farmer_id=user['farmer_id'])
+    
+    # Filter records with images only
+    records_with_images = [r for r in records if r.get("image_url")]
+    
+    from html_templates import FARMER_IMAGES_HTML
+    return render_template_string(FARMER_IMAGES_HTML,
+                                   username=user['username'],
+                                   records=records_with_images,
+                                   devices=devices,
+                                   selected_device=selected_device)
+
+# ==================== API ROUTES ====================
+@app.route("/api/analysis_data")
+def api_analysis_data():
+    """API endpoint for fetching filtered analysis data"""
+    farmer_id = request.args.get("farmer_id")
+    days = int(request.args.get("days", 7))
+    
+    if not farmer_id:
+        return jsonify({"error": "farmer_id required"}), 400
+    
+    records = load_records(farmer_id=farmer_id)
+    
+    if len(records) == 0:
+        return jsonify({"labels": [], "bar_data": [], "line_data": []})
+    
+    df = pd.DataFrame(records)
+    df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    
+    # Filter by date range
+    cutoff_date = datetime.now() - timedelta(days=days)
+    df_filtered = df[df["timestamp"] >= cutoff_date]
+    
+    # Five insects
+    insects = ["whiteflies", "aphids", "thrips", "beetle", "fungus gnats"]
+    
+    # Bar chart data (total per insect)
+    bar_data = []
+    for insect in insects:
+        count = int(df_filtered[df_filtered["insect"] == insect]["count"].sum())
+        bar_data.append(count)
+    
+    # Line chart data (daily trends)
+    df_filtered["date"] = df_filtered["timestamp"].dt.date
+    daily_data = df_filtered.groupby(["date", "insect"])["count"].sum().reset_index()
+    
+    # Get last N days dates
+    dates = pd.date_range(end=datetime.now(), periods=min(days, 30), freq='D')
+    date_labels = [d.strftime("%Y-%m-%d") for d in dates]
+    
+    # Create line data for each insect
+    line_datasets = []
+    colors = [
+        "rgba(255, 127, 80, 0.8)",   # whiteflies - orange
+        "rgba(64, 156, 255, 0.8)",   # aphids - blue
+        "rgba(76, 217, 100, 0.8)",   # thrips - green
+        "rgba(175, 82, 222, 0.8)",   # beetle - purple
+        "rgba(255, 204, 0, 0.8)"     # fungus gnats - gold
+    ]
+    
+    for idx, insect in enumerate(insects):
+        insect_data = []
+        for date_str in date_labels:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+            matching = daily_data[(daily_data["date"] == date_obj) & (daily_data["insect"] == insect)]
+            count = int(matching["count"].sum()) if len(matching) > 0 else 0
+            insect_data.append(count)
+        
+        line_datasets.append({
+            "label": insect.title(),
+            "data": insect_data,
+            "borderColor": colors[idx],
+            "backgroundColor": colors[idx].replace("0.8", "0.2"),
+            "tension": 0.4
+        })
+    
+    return jsonify({
+        "labels": insects,
+        "bar_data": bar_data,
+        "line_labels": date_labels,
+        "line_datasets": line_datasets
     })
-
-    public_url = supabase.storage.from_(bucket).get_public_url(file_path)
-    return public_url
 
 @app.route("/upload", methods=["POST"])
 def upload():
     data = request.get_json(silent=True)
-
-    # ✅ Case 1: JSON body (mobile / PWA / JS test form)
+    
+    # Case 1: JSON body
     if data:
         farmer_id = data.get("farmer_id", "unknown")
         insect = data.get("insect", "unknown")
         count = int(data.get("count", 0))
         image_b64 = data.get("image_b64")
-
+        
         if not image_b64:
             return {"error": "No image data received"}, 400
-
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"{timestamp}_{farmer_id}.jpg"
-
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{farmer_id}.jpg"
+        
         try:
             file_bytes = base64.b64decode(image_b64)
             image_url = upload_image_to_supabase(filename, file_bytes)
+            if not image_url:
+                return {"error": "Image upload failed"}, 500
         except Exception as e:
             return {"error": "image upload failed", "detail": str(e)}, 500
-
+        
         append_record(timestamp, farmer_id, insect, count, image_url)
-
+        
         return {
             "status": "ok",
             "farmer_id": farmer_id,
@@ -371,1592 +639,81 @@ def upload():
             "insect": insect,
             "count": count
         }, 200
-
-    # ✅ Case 2: Form upload (curl / device HTTP multipart)
+    
+    # Case 2: Form upload
     if 'image' in request.files:
         f = request.files['image']
         farmer_id = request.form.get("farmer_id", "unknown")
         insect = request.form.get("insect", "unknown")
         count = int(request.form.get("count", 0))
-
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"{timestamp}_{farmer_id}.jpg"
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{farmer_id}.jpg"
         file_bytes = f.read()
-
+        
         image_url = upload_image_to_supabase(filename, file_bytes)
+        if not image_url:
+            return {"error": "Image upload failed"}, 500
+            
         append_record(timestamp, farmer_id, insect, count, image_url)
         return {"status": "ok", "image_url": image_url}, 200
-
-    # If neither JSON nor file upload was valid → error
+    
     return {"error": "Invalid upload format"}, 400
-
 
 @app.route('/api/upload_result', methods=['POST'])
 def upload_result():
+    """Device upload endpoint with device key authentication"""
     device_key = request.headers.get("Device-Key")
     if not device_key:
         return {"error": "Device-Key header missing"}, 400
-
+    
     device = get_device_by_key(device_key)
     if not device:
         return {"error": "invalid device_key"}, 403
-
+    
+    device_id = device[0]
     farmer_id = device[3]
-
+    
     data = request.get_json(silent=True)
     if not data:
         return {"error": "invalid or missing JSON"}, 400
-
+    
     insect = data.get("insect", "unknown")
     try:
         count = int(data.get("count", 0))
     except:
         count = 0
-
-    image_b64 = data.get("image_base64")
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-    image_path = ""
+    
+    image_b64 = data.get("image_base64") or data.get("image_b64")
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    image_url = ""
     if image_b64:
-        filename = f"{timestamp}_{farmer_id}.jpg"
-        image_path = UPLOAD_FOLDER / filename
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{farmer_id}.jpg"
         try:
-            with open(image_path, "wb") as f:
-                f.write(base64.b64decode(image_b64))
+            file_bytes = base64.b64decode(image_b64)
+            image_url = upload_image_to_supabase(filename, file_bytes)
         except Exception as e:
-            return {"error": "image save failed", "detail": str(e)}, 500
-
-    append_record(timestamp, farmer_id, insect, count, image_path)
-
+            return {"error": "image upload failed", "detail": str(e)}, 500
+    
+    append_record(timestamp, farmer_id, insect, count, image_url, device_id=device_id)
+    
     return {
         "status": "ok",
         "farmer_id": farmer_id,
-        "saved_image": str(image_path),
+        "device_id": device_id,
+        "image_url": image_url,
         "insect": insect,
         "count": count
     }, 200
-
-@app.route("/uploads/<path:filename>")
-def serve_upload(filename):
-    return send_from_directory(str(UPLOAD_FOLDER), filename)
 
 @app.route("/static/<path:filename>")
 def serve_static(filename):
     return send_from_directory('static', filename)
 
-LOGIN_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - JP Global InsectDetect</title>
-    
-    <!-- PWA Meta Tags -->
-    <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#ff7f50">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="JP InsectDetect">
-    <link rel="apple-touch-icon" href="/static/images/logo.png">
-    
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- Service Worker Registration -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/static/service-worker.js')
-                    .then(registration => console.log('SW registered'))
-                    .catch(err => console.log('SW registration failed'));
-            });
-        }
-    </script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Poppins', sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        body::before {
-            content: '';
-            position: absolute;
-            width: 500px;
-            height: 500px;
-            background: radial-gradient(circle, rgba(255,127,80,0.15) 0%, transparent 70%);
-            top: -200px;
-            right: -200px;
-            border-radius: 50%;
-        }
-        
-        body::after {
-            content: '';
-            position: absolute;
-            width: 400px;
-            height: 400px;
-            background: radial-gradient(circle, rgba(64,156,255,0.15) 0%, transparent 70%);
-            bottom: -150px;
-            left: -150px;
-            border-radius: 50%;
-        }
-        
-        .login-container {
-            position: relative;
-            width: 90%;
-            max-width: 480px;
-            z-index: 10;
-        }
-        
-        .glass-card {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-radius: 24px;
-            padding: 48px 40px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        }
-        
-        .logo-container {
-            text-align: center;
-            margin-bottom: 36px;
-        }
-        
-        .logo-container img {
-            width: 220px;
-            height: auto;
-            margin-bottom: 16px;
-            filter: drop-shadow(0 4px 12px rgba(255,127,80,0.3));
-        }
-        
-        .welcome-text {
-            color: #ffffff;
-            font-size: 28px;
-            font-weight: 600;
-            text-align: center;
-            margin-bottom: 12px;
-            background: linear-gradient(135deg, #ff7f50 0%, #409cff 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        
-        .subtitle {
-            color: rgba(255, 255, 255, 0.6);
-            text-align: center;
-            font-size: 14px;
-            margin-bottom: 32px;
-            font-weight: 300;
-        }
-        
-        .form-group {
-            margin-bottom: 24px;
-        }
-        
-        .form-group label {
-            display: block;
-            color: rgba(255, 255, 255, 0.8);
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 8px;
-        }
-        
-        .form-group input {
-            width: 100%;
-            padding: 14px 18px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            color: #ffffff;
-            font-size: 15px;
-            font-family: 'Poppins', sans-serif;
-            transition: all 0.3s ease;
-        }
-        
-        .form-group input:focus {
-            outline: none;
-            background: rgba(255, 255, 255, 0.08);
-            border-color: #ff7f50;
-            box-shadow: 0 0 0 3px rgba(255, 127, 80, 0.1);
-        }
-        
-        .form-group input::placeholder {
-            color: rgba(255, 255, 255, 0.3);
-        }
-        
-        .btn-login {
-            width: 100%;
-            padding: 16px;
-            background: linear-gradient(135deg, #ff7f50 0%, #ff6b45 100%);
-            border: none;
-            border-radius: 12px;
-            color: #ffffff;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-family: 'Poppins', sans-serif;
-            box-shadow: 0 4px 15px rgba(255, 127, 80, 0.3);
-            margin-top: 8px;
-        }
-        
-        .btn-login:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(255, 127, 80, 0.4);
-        }
-        
-        .btn-login:active {
-            transform: translateY(0);
-        }
-        
-        .credentials-info {
-            margin-top: 28px;
-            padding-top: 24px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .credentials-info p {
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 12px;
-            text-align: center;
-            margin-bottom: 8px;
-        }
-        
-        .cred-box {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 8px;
-            padding: 10px 14px;
-            margin: 6px 0;
-            font-size: 13px;
-            color: rgba(255, 255, 255, 0.7);
-        }
-        
-        .cred-box strong {
-            color: #ff7f50;
-        }
-        
-        .flash-message {
-            background: rgba(255, 107, 107, 0.15);
-            border: 1px solid rgba(255, 107, 107, 0.3);
-            color: #ff6b6b;
-            padding: 12px 16px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-size: 14px;
-            text-align: center;
-        }
-        
-        @keyframes float {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-10px); }
-        }
-        
-        .logo-container img {
-            animation: float 3s ease-in-out infinite;
-        }
-    </style>
-</head>
-<body>
-    <div class="login-container">
-        <div class="glass-card">
-            <div class="logo-container">
-                <img src="/static/images/logo.png" alt="JP Global Engineering">
-            </div>
-            
-            <h1 class="welcome-text">AI Pest & Disease Detection</h1>
-            <p class="subtitle">Advanced Pest Monitoring System</p>
-            
-            {% with messages = get_flashed_messages() %}
-                {% if messages %}
-                    {% for message in messages %}
-                        <div class="flash-message">{{ message }}</div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
-            
-            <form method="POST" action="/login">
-                <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" placeholder="Enter your username" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" placeholder="Enter your password" required>
-                </div>
-                
-                <button type="submit" class="btn-login">Sign In</button>
-            </form>
-            
-            <div class="credentials-info">
-                <p>Demo Credentials:</p>
-                <div class="cred-box">
-                    <strong>Admin:</strong> admin / admin123
-                </div>
-                <div class="cred-box">
-                    <strong>Farmer:</strong> farmer1 / pass123
-                </div>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-"""
-
-DASH_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Farmer Dashboard - JP Global InsectDetect</title>
-    
-    <!-- PWA Meta Tags -->
-    <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#ff7f50">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="JP InsectDetect">
-    <link rel="apple-touch-icon" href="/static/images/logo.png">
-    
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    
-    <!-- Service Worker Registration -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/static/service-worker.js')
-                    .then(registration => console.log('SW registered'))
-                    .catch(err => console.log('SW registration failed'));
-            });
-        }
-    </script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Poppins', sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%);
-            min-height: 100vh;
-            color: #ffffff;
-        }
-        
-        .navbar {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            padding: 16px 32px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
-        
-        .navbar-brand {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-        
-        .navbar-brand img {
-            height: 45px;
-        }
-        
-        .navbar-title {
-            font-size: 20px;
-            font-weight: 600;
-            background: linear-gradient(135deg, #ff7f50 0%, #409cff 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        
-        .navbar-user {
-            display: flex;
-            align-items: center;
-            gap: 24px;
-        }
-        
-        .user-info {
-            text-align: right;
-        }
-        
-        .user-name {
-            font-size: 14px;
-            font-weight: 500;
-            color: #ffffff;
-        }
-        
-        .user-role {
-            font-size: 12px;
-            color: rgba(255, 255, 255, 0.5);
-        }
-        
-        .btn-logout {
-            padding: 8px 20px;
-            background: rgba(255, 107, 107, 0.15);
-            border: 1px solid rgba(255, 107, 107, 0.3);
-            border-radius: 8px;
-            color: #ff6b6b;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.3s ease;
-        }
-        
-        .btn-logout:hover {
-            background: rgba(255, 107, 107, 0.25);
-            transform: translateY(-1px);
-        }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 32px;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 32px;
-        }
-        
-        .stat-card {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            padding: 24px;
-            position: relative;
-            overflow: hidden;
-            transition: all 0.3s ease;
-        }
-        
-        .stat-card:hover {
-            transform: translateY(-4px);
-            border-color: rgba(255, 127, 80, 0.3);
-            box-shadow: 0 8px 24px rgba(255, 127, 80, 0.15);
-        }
-        
-        .stat-icon {
-            width: 56px;
-            height: 56px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            margin-bottom: 16px;
-        }
-        
-        .stat-icon.orange {
-            background: linear-gradient(135deg, rgba(255, 127, 80, 0.2) 0%, rgba(255, 127, 80, 0.05) 100%);
-            color: #ff7f50;
-        }
-        
-        .stat-icon.blue {
-            background: linear-gradient(135deg, rgba(64, 156, 255, 0.2) 0%, rgba(64, 156, 255, 0.05) 100%);
-            color: #409cff;
-        }
-        
-        .stat-icon.green {
-            background: linear-gradient(135deg, rgba(76, 217, 100, 0.2) 0%, rgba(76, 217, 100, 0.05) 100%);
-            color: #4cd964;
-        }
-        
-        .stat-icon.purple {
-            background: linear-gradient(135deg, rgba(175, 82, 222, 0.2) 0%, rgba(175, 82, 222, 0.05) 100%);
-            color: #af52de;
-        }
-        
-        .stat-label {
-            font-size: 13px;
-            color: rgba(255, 255, 255, 0.6);
-            margin-bottom: 4px;
-            font-weight: 400;
-        }
-        
-        .stat-value {
-            font-size: 32px;
-            font-weight: 700;
-            color: #ffffff;
-        }
-        
-        .chart-container {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            padding: 28px;
-            margin-bottom: 24px;
-        }
-        
-        .chart-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-        }
-        
-        .chart-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #ffffff;
-        }
-        
-        .table-container {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            padding: 28px;
-            overflow-x: auto;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        thead tr {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        th {
-            padding: 12px 16px;
-            text-align: left;
-            font-size: 13px;
-            font-weight: 600;
-            color: rgba(255, 255, 255, 0.7);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        td {
-            padding: 16px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 14px;
-        }
-        
-        tbody tr {
-            transition: all 0.2s ease;
-        }
-        
-        tbody tr:hover {
-            background: rgba(255, 255, 255, 0.03);
-        }
-        
-        .image-thumb {
-            width: 120px;
-            height: 60px;
-            object-fit: cover;
-            border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .image-thumb:hover {
-            transform: scale(1.05);
-            border-color: #ff7f50;
-        }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 2000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.9);
-            backdrop-filter: blur(10px);
-        }
-        
-        .modal-content {
-            position: relative;
-            margin: 5% auto;
-            max-width: 800px;
-            animation: zoomIn 0.3s ease;
-        }
-        
-        .modal-content img {
-            width: 100%;
-            border-radius: 12px;
-        }
-        
-        .close-modal {
-            position: absolute;
-            top: -40px;
-            right: 0;
-            color: #fff;
-            font-size: 32px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .close-modal:hover {
-            color: #ff7f50;
-        }
-        
-        @keyframes zoomIn {
-            from {
-                transform: scale(0.8);
-                opacity: 0;
-            }
-            to {
-                transform: scale(1);
-                opacity: 1;
-            }
-        }
-        
-        .badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        
-        .badge-count {
-            background: rgba(255, 127, 80, 0.2);
-            color: #ff7f50;
-        }
-        
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: rgba(255, 255, 255, 0.5);
-        }
-        
-        .empty-state i {
-            font-size: 64px;
-            margin-bottom: 16px;
-            opacity: 0.3;
-        }
-        
-        @media (max-width: 768px) {
-            .container {
-                padding: 16px;
-            }
-            
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .navbar {
-                padding: 12px 16px;
-            }
-            
-            .navbar-brand img {
-                height: 35px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <nav class="navbar">
-        <div class="navbar-brand">
-            <img src="/static/images/logo.png" alt="JP Global">
-            <span class="navbar-title">AI Insect Detecttion Dashboard</span>
-        </div>
-        <div class="navbar-user">
-            <div class="user-info">
-                <div class="user-name">{{ username }}</div>
-                <div class="user-role">Farmer Dashboard</div>
-            </div>
-            <a href="/logout" class="btn-logout">
-                <i class="fas fa-sign-out-alt"></i> Logout
-            </a>
-        </div>
-    </nav>
-    
-    <div class="container">
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon orange">
-                    <i class="fas fa-bug"></i>
-                </div>
-                <div class="stat-label">Total Detections</div>
-                <div class="stat-value">{{ total_records }}</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-icon blue">
-                    <i class="fas fa-layer-group"></i>
-                </div>
-                <div class="stat-label">Insect Types</div>
-                <div class="stat-value">{{ summary|length }}</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-icon green">
-                    <i class="fas fa-chart-line"></i>
-                </div>
-                <div class="stat-label">Total Count</div>
-                <div class="stat-value" id="totalCount">0</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-icon purple">
-                    <i class="fas fa-seedling"></i>
-                </div>
-                <div class="stat-label">Farm ID</div>
-                <div class="stat-value" style="font-size: 18px;">{{ farmer_id }}</div>
-            </div>
-        </div>
-        
-        <div class="chart-container">
-            <div class="chart-header">
-                <h2 class="chart-title"><i class="fas fa-chart-pie"></i> Insect Distribution</h2>
-            </div>
-            <canvas id="insectPieChart" style="max-height: 300px;"></canvas>
-        </div>
-        
-        <div class="chart-container">
-            <div class="chart-header">
-                <h2 class="chart-title"><i class="fas fa-chart-bar"></i> Detection Analysis</h2>
-            </div>
-            <canvas id="insectBarChart" style="max-height: 350px;"></canvas>
-        </div>
-        
-        <div class="table-container">
-            <div class="chart-header">
-                <h2 class="chart-title"><i class="fas fa-table"></i> Detection Records</h2>
-            </div>
-            
-            {% if df|length > 0 %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Insect Type</th>
-                        <th>Count</th>
-                        <th>Image</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in df %}
-                    <tr>
-                        <td>{{ row.timestamp }}</td>
-                        <td>{{ row.insect }}</td>
-                        <td><span class="badge badge-count">{{ row.count }}</span></td>
-                        <td>
-                            {% if row.image_url %}
-                                <img src="{{ row.image_url }}" class="image-thumb" 
-                                     onclick="openModal('{{ row.image_url }}')" 
-                                     alt="Detection">
-                            {% else %}
-                                <span style="color: rgba(255,255,255,0.3);">No image</span>
-                            {% endif %}
-                        </td>
-
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <div class="empty-state">
-                <i class="fas fa-inbox"></i>
-                <p>No detection records yet</p>
-            </div>
-            {% endif %}
-        </div>
-    </div>
-    
-    <div id="imageModal" class="modal" onclick="closeModal()">
-        <div class="modal-content">
-            <span class="close-modal">&times;</span>
-            <img id="modalImage" src="" alt="Full size">
-        </div>
-    </div>
-    
-    <script>
-        const summaryData = {{ summary|tojson }};
-        
-        let totalCount = 0;
-        summaryData.forEach(item => {
-            totalCount += item.count;
-        });
-        document.getElementById('totalCount').textContent = totalCount;
-        
-        const pieCtx = document.getElementById('insectPieChart').getContext('2d');
-        const pieChart = new Chart(pieCtx, {
-            type: 'doughnut',
-            data: {
-                labels: summaryData.map(item => item.insect),
-                datasets: [{
-                    data: summaryData.map(item => item.count),
-                    backgroundColor: [
-                        'rgba(255, 127, 80, 0.8)',
-                        'rgba(64, 156, 255, 0.8)',
-                        'rgba(76, 217, 100, 0.8)',
-                        'rgba(175, 82, 222, 0.8)',
-                        'rgba(255, 204, 0, 0.8)',
-                        'rgba(255, 107, 107, 0.8)'
-                    ],
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: {
-                            color: 'rgba(255, 255, 255, 0.8)',
-                            padding: 15,
-                            font: {
-                                size: 13,
-                                family: 'Poppins'
-                            }
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        padding: 12,
-                        titleFont: {
-                            size: 14,
-                            family: 'Poppins'
-                        },
-                        bodyFont: {
-                            size: 13,
-                            family: 'Poppins'
-                        }
-                    }
-                }
-            }
-        });
-        
-        const barCtx = document.getElementById('insectBarChart').getContext('2d');
-        const barChart = new Chart(barCtx, {
-            type: 'bar',
-            data: {
-                labels: summaryData.map(item => item.insect),
-                datasets: [{
-                    label: 'Detection Count',
-                    data: summaryData.map(item => item.count),
-                    backgroundColor: 'rgba(255, 127, 80, 0.6)',
-                    borderColor: 'rgba(255, 127, 80, 1)',
-                    borderWidth: 2,
-                    borderRadius: 8
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            color: 'rgba(255, 255, 255, 0.7)',
-                            font: {
-                                family: 'Poppins'
-                            }
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.05)'
-                        }
-                    },
-                    x: {
-                        ticks: {
-                            color: 'rgba(255, 255, 255, 0.7)',
-                            font: {
-                                family: 'Poppins'
-                            }
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.05)'
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        labels: {
-                            color: 'rgba(255, 255, 255, 0.8)',
-                            font: {
-                                family: 'Poppins'
-                            }
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        padding: 12,
-                        titleFont: {
-                            size: 14,
-                            family: 'Poppins'
-                        },
-                        bodyFont: {
-                            size: 13,
-                            family: 'Poppins'
-                        }
-                    }
-                }
-            }
-        });
-        
-        function openModal(imageSrc) {
-            document.getElementById('imageModal').style.display = 'block';
-            document.getElementById('modalImage').src = imageSrc;
-        }
-        
-        function closeModal() {
-            document.getElementById('imageModal').style.display = 'none';
-        }
-    </script>
-</body>
-</html>
-"""
-
-ADMIN_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - JP Global InsectDetect</title>
-    
-    <!-- PWA Meta Tags -->
-    <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#ff7f50">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="JP InsectDetect">
-    <link rel="apple-touch-icon" href="/static/images/logo.png">
-    
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    
-    <!-- Service Worker Registration -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/static/service-worker.js')
-                    .then(registration => console.log('SW registered'))
-                    .catch(err => console.log('SW registration failed'));
-            });
-        }
-    </script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Poppins', sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%);
-            min-height: 100vh;
-            color: #ffffff;
-        }
-        
-        .navbar {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            padding: 16px 32px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
-        
-        .navbar-brand {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-        
-        .navbar-brand img {
-            height: 45px;
-        }
-        
-        .navbar-title {
-            font-size: 20px;
-            font-weight: 600;
-            background: linear-gradient(135deg, #ff7f50 0%, #409cff 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        
-        .navbar-user {
-            display: flex;
-            align-items: center;
-            gap: 24px;
-        }
-        
-        .user-info {
-            text-align: right;
-        }
-        
-        .user-name {
-            font-size: 14px;
-            font-weight: 500;
-            color: #ffffff;
-        }
-        
-        .user-role {
-            font-size: 12px;
-            color: rgba(255, 255, 255, 0.5);
-        }
-        
-        .btn-logout {
-            padding: 8px 20px;
-            background: rgba(255, 107, 107, 0.15);
-            border: 1px solid rgba(255, 107, 107, 0.3);
-            border-radius: 8px;
-            color: #ff6b6b;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.3s ease;
-        }
-        
-        .btn-logout:hover {
-            background: rgba(255, 107, 107, 0.25);
-            transform: translateY(-1px);
-        }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 32px;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 32px;
-        }
-        
-        .stat-card {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            padding: 24px;
-            position: relative;
-            overflow: hidden;
-            transition: all 0.3s ease;
-        }
-        
-        .stat-card:hover {
-            transform: translateY(-4px);
-            border-color: rgba(255, 127, 80, 0.3);
-            box-shadow: 0 8px 24px rgba(255, 127, 80, 0.15);
-        }
-        
-        .stat-icon {
-            width: 56px;
-            height: 56px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            margin-bottom: 16px;
-        }
-        
-        .stat-icon.orange {
-            background: linear-gradient(135deg, rgba(255, 127, 80, 0.2) 0%, rgba(255, 127, 80, 0.05) 100%);
-            color: #ff7f50;
-        }
-        
-        .stat-icon.blue {
-            background: linear-gradient(135deg, rgba(64, 156, 255, 0.2) 0%, rgba(64, 156, 255, 0.05) 100%);
-            color: #409cff;
-        }
-        
-        .stat-icon.green {
-            background: linear-gradient(135deg, rgba(76, 217, 100, 0.2) 0%, rgba(76, 217, 100, 0.05) 100%);
-            color: #4cd964;
-        }
-        
-        .stat-icon.gold {
-            background: linear-gradient(135deg, rgba(255, 204, 0, 0.2) 0%, rgba(255, 204, 0, 0.05) 100%);
-            color: #ffcc00;
-        }
-        
-        .stat-label {
-            font-size: 13px;
-            color: rgba(255, 255, 255, 0.6);
-            margin-bottom: 4px;
-            font-weight: 400;
-        }
-        
-        .stat-value {
-            font-size: 32px;
-            font-weight: 700;
-            color: #ffffff;
-        }
-        
-        .chart-container {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            padding: 28px;
-            margin-bottom: 24px;
-        }
-        
-        .chart-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-        }
-        
-        .chart-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #ffffff;
-        }
-        
-        .section-title {
-            font-size: 22px;
-            font-weight: 600;
-            margin-bottom: 20px;
-            color: #ffffff;
-        }
-        
-        .form-container {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            padding: 28px;
-            margin-bottom: 24px;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            color: rgba(255, 255, 255, 0.8);
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 8px;
-        }
-        
-        .form-group input,
-        .form-group select {
-            width: 100%;
-            padding: 12px 16px;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            color: #ffffff;
-            font-size: 14px;
-            font-family: 'Poppins', sans-serif;
-            transition: all 0.3s ease;
-        }
-        
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            background: rgba(255, 255, 255, 0.08);
-            border-color: #ff7f50;
-            box-shadow: 0 0 0 3px rgba(255, 127, 80, 0.1);
-        }
-        
-        .btn-primary {
-            padding: 12px 28px;
-            background: linear-gradient(135deg, #ff7f50 0%, #ff6b45 100%);
-            border: none;
-            border-radius: 10px;
-            color: #ffffff;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-family: 'Poppins', sans-serif;
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(255, 127, 80, 0.3);
-        }
-        
-        .btn-secondary {
-            padding: 8px 16px;
-            background: rgba(64, 156, 255, 0.15);
-            border: 1px solid rgba(64, 156, 255, 0.3);
-            border-radius: 8px;
-            color: #409cff;
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-family: 'Poppins', sans-serif;
-        }
-        
-        .btn-secondary:hover {
-            background: rgba(64, 156, 255, 0.25);
-        }
-        
-        .table-container {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            padding: 28px;
-            overflow-x: auto;
-            margin-bottom: 24px;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        thead tr {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        th {
-            padding: 12px 16px;
-            text-align: left;
-            font-size: 13px;
-            font-weight: 600;
-            color: rgba(255, 255, 255, 0.7);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        td {
-            padding: 16px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 14px;
-        }
-        
-        tbody tr {
-            transition: all 0.2s ease;
-        }
-        
-        tbody tr:hover {
-            background: rgba(255, 255, 255, 0.03);
-        }
-        
-        .key-display {
-            font-family: 'Courier New', monospace;
-            background: rgba(0, 0, 0, 0.3);
-            padding: 6px 10px;
-            border-radius: 6px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        
-        .key-actions {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-        
-        .copy-btn {
-            background: rgba(76, 217, 100, 0.15);
-            border: 1px solid rgba(76, 217, 100, 0.3);
-            color: #4cd964;
-            padding: 6px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.3s ease;
-        }
-        
-        .copy-btn:hover {
-            background: rgba(76, 217, 100, 0.25);
-        }
-        
-        .flash-messages {
-            margin-bottom: 24px;
-        }
-        
-        .flash-message {
-            padding: 14px 18px;
-            border-radius: 10px;
-            margin-bottom: 12px;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .flash-message.success {
-            background: rgba(76, 217, 100, 0.15);
-            border: 1px solid rgba(76, 217, 100, 0.3);
-            color: #4cd964;
-        }
-        
-        .flash-message.danger {
-            background: rgba(255, 107, 107, 0.15);
-            border: 1px solid rgba(255, 107, 107, 0.3);
-            color: #ff6b6b;
-        }
-        
-        @media (max-width: 768px) {
-            .container {
-                padding: 16px;
-            }
-            
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .navbar {
-                padding: 12px 16px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <nav class="navbar">
-        <div class="navbar-brand">
-            <img src="/static/images/logo.png" alt="JP Global">
-            <span class="navbar-title">Admin Control Panel</span>
-        </div>
-        <div class="navbar-user">
-            <div class="user-info">
-                <div class="user-name">Administrator</div>
-                <div class="user-role">Admin Dashboard</div>
-            </div>
-            <a href="/logout" class="btn-logout">
-                <i class="fas fa-sign-out-alt"></i> Logout
-            </a>
-        </div>
-    </nav>
-    
-    <div class="container">
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                <div class="flash-messages">
-                    {% for message in messages %}
-                        <div class="flash-message success">
-                            <i class="fas fa-check-circle"></i>
-                            {{ message }}
-                        </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
-        {% endwith %}
-        
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon orange">
-                    <i class="fas fa-bug"></i>
-                </div>
-                <div class="stat-label">Total Detections</div>
-                <div class="stat-value" id="totalDetections">{{ df|length }}</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-icon blue">
-                    <i class="fas fa-users"></i>
-                </div>
-                <div class="stat-label">Active Farmers</div>
-                <div class="stat-value">{{ farmers|length }}</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-icon green">
-                    <i class="fas fa-layer-group"></i>
-                </div>
-                <div class="stat-label">Insect Types</div>
-                <div class="stat-value">{{ summary|length }}</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-icon gold">
-                    <i class="fas fa-microchip"></i>
-                </div>
-                <div class="stat-label">Registered Devices</div>
-                <div class="stat-value">{{ devices|length }}</div>
-            </div>
-        </div>
-        
-        <div class="chart-container">
-            <div class="chart-header">
-                <h2 class="chart-title"><i class="fas fa-chart-pie"></i> Global Insect Distribution</h2>
-            </div>
-            <canvas id="insectPieChart" style="max-height: 300px;"></canvas>
-        </div>
-        
-        <div class="form-container">
-            <h2 class="section-title"><i class="fas fa-plus-circle"></i> Create New Device</h2>
-            <form method="POST" action="/admin/create_device">
-                <div class="form-group">
-                    <label for="device_name">Device Name</label>
-                    <input type="text" id="device_name" name="device_name" placeholder="e.g., Field-Device-01" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="farmer_id">Assign to Farmer</label>
-                    <select id="farmer_id" name="farmer_id" required>
-                        <option value="">-- Select Farmer --</option>
-                        {% for f in farmers %}
-                            <option value="{{ f[1] }}">{{ f[0] }} ({{ f[1] }})</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                
-                <button type="submit" class="btn-primary">
-                    <i class="fas fa-plus"></i> Create Device
-                </button>
-            </form>
-        </div>
-        
-        <div class="table-container">
-            <h2 class="section-title"><i class="fas fa-microchip"></i> Device Management</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Device Name</th>
-                        <th>Farmer ID</th>
-                        <th>Device Key</th>
-                        <th>Created</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for d in devices %}
-                    <tr>
-                        <td><strong>{{ d[1] }}</strong></td>
-                        <td>{{ d[3] or '-' }}</td>
-                        <td>
-                            <div class="key-actions">
-                                <span class="key-display" id="key-{{ d[0] }}" onclick="toggleKey('{{ d[0] }}', '{{ d[2] }}')">
-                                    {{ d[2][:8] }}...{{ d[2][-8:] }}
-                                </span>
-                                <button class="copy-btn" onclick="copyKey('{{ d[2] }}')">
-                                    <i class="fas fa-copy"></i> Copy
-                                </button>
-                            </div>
-                        </td>
-                        <td>{{ d[4] }}</td>
-                        <td>
-                            <form method="POST" action="/admin/regenerate_key" style="display: inline;">
-                                <input type="hidden" name="device_id" value="{{ d[0] }}">
-                                <button type="submit" class="btn-secondary">
-                                    <i class="fas fa-sync-alt"></i> Regenerate
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    
-    <script>
-        const summaryData = {{ summary|tojson }};
-        
-        const pieCtx = document.getElementById('insectPieChart').getContext('2d');
-        const pieChart = new Chart(pieCtx, {
-            type: 'doughnut',
-            data: {
-                labels: summaryData.map(item => item.insect),
-                datasets: [{
-                    data: summaryData.map(item => item.count),
-                    backgroundColor: [
-                        'rgba(255, 127, 80, 0.8)',
-                        'rgba(64, 156, 255, 0.8)',
-                        'rgba(76, 217, 100, 0.8)',
-                        'rgba(175, 82, 222, 0.8)',
-                        'rgba(255, 204, 0, 0.8)',
-                        'rgba(255, 107, 107, 0.8)'
-                    ],
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: {
-                            color: 'rgba(255, 255, 255, 0.8)',
-                            padding: 15,
-                            font: {
-                                size: 13,
-                                family: 'Poppins'
-                            }
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        padding: 12,
-                        titleFont: {
-                            size: 14,
-                            family: 'Poppins'
-                        },
-                        bodyFont: {
-                            size: 13,
-                            family: 'Poppins'
-                        }
-                    }
-                }
-            }
-        });
-        
-        const keyStates = {};
-        
-        function toggleKey(id, fullKey) {
-            const element = document.getElementById('key-' + id);
-            if (!keyStates[id]) {
-                element.textContent = fullKey;
-                keyStates[id] = true;
-            } else {
-                element.textContent = fullKey.substring(0, 8) + '...' + fullKey.substring(fullKey.length - 8);
-                keyStates[id] = false;
-            }
-        }
-        
-        function copyKey(key) {
-            navigator.clipboard.writeText(key).then(() => {
-                alert('Device key copied to clipboard!');
-            });
-        }
-    </script>
-</body>
-</html>
-"""
+@app.route("/health")
+def health():
+    return {"ok": True}
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
