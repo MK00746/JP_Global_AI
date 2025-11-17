@@ -196,6 +196,26 @@ def upload_image_to_supabase(filename: str, data: bytes):
         print(f"Upload error: {e}")
         return None
 
+    
+def list_images_from_supabase():
+    """List all images from Supabase storage"""
+    bucket = "insect-images"
+    try:
+        files = supabase.storage.from_(bucket).list("insects/")
+        image_list = []
+        for file in files:
+            filename = file['name']
+            if filename.endswith(('.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG')):
+                image_url = supabase.storage.from_(bucket).get_public_url(f"insects/{filename}")
+                image_list.append({
+                    'filename': filename,
+                    'url': image_url
+                })
+        return image_list
+    except Exception as e:
+        print(f"Error listing images: {e}")
+        return []
+    
 # Session Management
 def login_user(username):
     session['username'] = username
@@ -363,12 +383,16 @@ def admin_images():
     # Filter records with images only
     records_with_images = [r for r in records if r.get("image_url")]
     
+    # ADD THIS LINE - Get all images from Supabase
+    available_images = list_images_from_supabase()
+    
     from html_templates import ADMIN_IMAGES_HTML
     return render_template_string(ADMIN_IMAGES_HTML,
                                    username=user['username'],
                                    records=records_with_images,
                                    farmers=farmers,
-                                   selected_farmer=selected_farmer)
+                                   selected_farmer=selected_farmer,
+                                   available_images=available_images)  # ADD THIS
 
 @app.route("/admin/users")
 def admin_users():
@@ -436,6 +460,31 @@ def admin_regenerate_key():
     new_key = regenerate_device_key(device_id)
     flash(f"Key regenerated. New key: {new_key}", "success")
     return redirect(url_for("admin_devices"))
+
+
+# ADD THIS NEW ROUTE HERE
+@app.route("/admin/create_record_for_image", methods=["POST"])
+def admin_create_record_for_image():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    image_url = request.form.get("image_url")
+    farmer_id = request.form.get("farmer_id")
+    insect = request.form.get("insect", "unknown")
+    count = int(request.form.get("count", 1))
+    
+    if not image_url or not farmer_id:
+        flash("Image URL and Farmer ID are required", "danger")
+        return redirect(url_for("admin_images"))
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    append_record(timestamp, farmer_id, insect, count, image_url)
+    
+    flash(f"Record created successfully for {insect}", "success")
+    return redirect(url_for("admin_images"))
+
+
 
 # ==================== FARMER ROUTES ====================
 @app.route("/farmer/overview")

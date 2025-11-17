@@ -1326,6 +1326,19 @@ ADMIN_IMAGES_HTML = """
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     """ + SIDEBAR_STYLES + """
+    <style>
+        .image-preview {
+            margin-top: 12px;
+            border-radius: 8px;
+            max-width: 200px;
+            max-height: 150px;
+            object-fit: cover;
+            border: 2px solid rgba(255, 127, 80, 0.3);
+        }
+        .image-select-option {
+            padding: 8px;
+        }
+    </style>
 </head>
 <body>
     """ + admin_sidebar('images') + """
@@ -1334,6 +1347,76 @@ ADMIN_IMAGES_HTML = """
         <div class="page-header">
             <h1 class="page-title">Detection Images</h1>
             <p class="page-subtitle">Browse insect detection images</p>
+        </div>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash-message {{ category }}">
+                            <i class="fas fa-{% if category == 'success' %}check-circle{% elif category == 'danger' %}exclamation-circle{% else %}info-circle{% endif %}"></i>
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+        
+        <!-- IMPROVED FORM - Select from available images -->
+        <div class="form-container">
+            <h2 class="chart-title"><i class="fas fa-link"></i> Link Images from Supabase Storage</h2>
+            <p style="color: rgba(255, 255, 255, 0.6); font-size: 13px; margin-bottom: 16px;">
+                Select from {{ available_images|length }} images found in your Supabase storage
+            </p>
+            
+            {% if available_images|length > 0 %}
+            <form method="POST" action="/admin/create_record_for_image">
+                <div class="form-grid">
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>Select Image</label>
+                        <select name="image_url" id="imageSelect" required onchange="previewImage()">
+                            <option value="">-- Choose an image --</option>
+                            {% for img in available_images %}
+                                <option value="{{ img.url }}" data-url="{{ img.url }}">{{ img.filename }}</option>
+                            {% endfor %}
+                        </select>
+                        <img id="imagePreview" class="image-preview" style="display: none;" alt="Preview">
+                    </div>
+                    <div class="form-group">
+                        <label>Farmer ID</label>
+                        <select name="farmer_id" required>
+                            <option value="">Select Farmer</option>
+                            {% for farmer in farmers %}
+                                <option value="{{ farmer[2] }}">{{ farmer[1] }} ({{ farmer[2] }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Insect Type</label>
+                        <select name="insect" required>
+                            <option value="whiteflies">Whiteflies</option>
+                            <option value="aphids">Aphids</option>
+                            <option value="thrips">Thrips</option>
+                            <option value="beetle">Beetle</option>
+                            <option value="fungus gnats">Fungus Gnats</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Count</label>
+                        <input type="number" name="count" value="1" min="1" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-link"></i> Create Record for Selected Image
+                </button>
+            </form>
+            {% else %}
+            <div class="empty-state">
+                <i class="fas fa-folder-open"></i>
+                <p>No unlinked images found in Supabase storage</p>
+                <small style="color: rgba(255, 255, 255, 0.5);">Upload images to: Storage → insect-images → insects/</small>
+            </div>
+            {% endif %}
         </div>
         
         <div class="filter-bar">
@@ -1366,7 +1449,7 @@ ADMIN_IMAGES_HTML = """
         {% else %}
         <div class="empty-state">
             <i class="fas fa-images"></i>
-            <p>No images found</p>
+            <p>No linked images found</p>
         </div>
         {% endif %}
     </div>
@@ -1379,10 +1462,24 @@ ADMIN_IMAGES_HTML = """
     </div>
     
     """ + SHARED_SCRIPTS + """
+    
+    <script>
+        function previewImage() {
+            const select = document.getElementById('imageSelect');
+            const preview = document.getElementById('imagePreview');
+            const selectedOption = select.options[select.selectedIndex];
+            
+            if (selectedOption.value) {
+                preview.src = selectedOption.getAttribute('data-url');
+                preview.style.display = 'block';
+            } else {
+                preview.style.display = 'none';
+            }
+        }
+    </script>
 </body>
 </html>
 """
-
 ADMIN_USERS_HTML = """
 <!DOCTYPE html>
 <html lang="en">
