@@ -334,7 +334,7 @@ def admin_overview():
     
     for record in records:
         detections = record.get("detections", {})
-        if isinstance(detections, str):
+        if detections is None:
             try:
                 detections = json.loads(detections)
             except:
