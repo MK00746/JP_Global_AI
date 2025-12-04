@@ -648,44 +648,55 @@ def api_analysis_data():
     farmer_id = request.args.get("farmer_id")
     days = int(request.args.get("days", 7))
 
-    if not farmer_id:
-        return {"error": "farmer_id missing"}, 400
+    # ❗ FIX TABLE NAME
+    db = supabase.table("insect_records") \
+        .select("*") \
+        .eq("farmer_id", farmer_id) \
+        .order("timestamp", desc=False) \
+        .execute()
 
-    # Fetch records
-    db = supabase.table("detections").select("*").eq("farmer_id", farmer_id).order("timestamp", desc=False).execute()
     records = db.data or []
 
-    # Convert timestamps safely (handles ISO + naive)
-    parsed_records = []
+    if not records:
+        return jsonify({
+            "labels": [],
+            "whiteflies": [],
+            "aphids": [],
+            "fungus_gnat": [],
+            "beetles": [],
+            "thrips": []
+        })
+
+    # Calculate cutoff date
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+    # ❗ FIX TIMESTAMP PARSING (ISO 8601)
+    filtered = []
     for r in records:
         try:
-            ts = r["timestamp"]
-            dt = parser.parse(ts)   # THIS WORKS with "2025-11-20T09:17:31+00:00"
-            r["parsed_ts"] = dt
-            parsed_records.append(r)
-        except Exception as e:
-            print("Timestamp parse error:", ts, str(e))
+            ts = parse(r["timestamp"])
+            if ts >= cutoff_date:
+                filtered.append(r)
+        except:
             continue
 
-    # Filter by date
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
-    filtered = [r for r in parsed_records if r["parsed_ts"] >= cutoff_date]
+    # Prepare lists for graph
+    labels = [parse(r["timestamp"]).strftime("%Y-%m-%d") for r in filtered]
+    whiteflies = [r["raw_meta"]["whiteflies"] for r in filtered]
+    aphids = [r["raw_meta"]["aphids"] for r in filtered]
+    fungus_gnat = [r["raw_meta"]["fungus_gnat"] for r in filtered]
+    beetles = [r["raw_meta"]["beetles"] for r in filtered]
+    thrips = [r["raw_meta"]["thrips"] for r in filtered]
 
-    # Aggregate counts per insect
-    insect_totals = {}
-    for r in filtered:
-        raw = r.get("raw_meta") or {}
-        detections = raw.get("detections") or {}
+    return jsonify({
+        "labels": labels,
+        "whiteflies": whiteflies,
+        "aphids": aphids,
+        "fungus_gnat": fungus_gnat,
+        "beetles": beetles,
+        "thrips": thrips
+    })
 
-        for insect, count in detections.items():
-            insect_totals[insect] = insect_totals.get(insect, 0) + count
-
-    # Format response
-    return {
-        "records": filtered,
-        "insect_totals": insect_totals,
-        "total_images": len(filtered)
-    }
 
 
 @app.route('/api/upload_result', methods=['POST'])
@@ -712,11 +723,12 @@ def upload_result():
         return {"error": "detections must be a JSON object"}, 400
     
     image_b64 = data.get("image_base64") or data.get("image_b64")
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = parse(r['timestamp'])
+
     
     image_url = ""
     if image_b64:
-        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{farmer_id}.jpg"
+        filename = f"{parse(r['timestamp'])}_{farmer_id}.jpg"
         try:
             file_bytes = base64.b64decode(image_b64)
             image_url = upload_image_to_supabase(filename, file_bytes)
