@@ -106,6 +106,17 @@ def create_device(device_name, farmer_id):
     conn.close()
     return {"id": row[0], "device_key": row[1]}
 
+import traceback
+
+# Add this decorator to log all errors
+@app.errorhandler(500)
+def internal_error(error):
+    print("="*60)
+    print("500 ERROR OCCURRED:")
+    print(traceback.format_exc())
+    print("="*60)
+    return {"error": "Internal server error", "detail": str(error)}, 500
+
 def get_all_devices():
     conn = sqlite3.connect(USERS_DB)
     cur = conn.cursor()
@@ -609,6 +620,9 @@ def farmer_overview():
                                    top_insect=top_insect,
                                    top_count=top_count,
                                    insect_summary=insect_summary)
+
+
+
 
 @app.route("/farmer/analysis")
 def farmer_analysis():
