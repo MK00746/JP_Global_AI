@@ -18,3 +18,4 @@ postgrest==0.14.0
 
 # Shared http layer (the ONLY version everyone accepts)
 httpx==0.24.1
+python-dateutil==2.8.2

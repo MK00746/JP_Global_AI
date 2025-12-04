@@ -533,6 +533,39 @@ def admin_regenerate_key():
     flash(f"Key regenerated. New key: {new_key}", "success")
     return redirect(url_for("admin_devices"))
 
+@app.route("/admin/create_record_for_image", methods=["POST"])
+def admin_create_record_for_image():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    image_url = request.form.get("image_url")
+    farmer_id = request.form.get("farmer_id")
+    insect = request.form.get("insect")
+    count = request.form.get("count", 1)
+    
+    if not image_url or not farmer_id or not insect:
+        flash("All fields are required", "danger")
+        return redirect(url_for("admin_images"))
+    
+    try:
+        count = int(count)
+    except:
+        count = 1
+    
+    # Create detections object
+    detections = {insect: count}
+    timestamp = datetime.utcnow().isoformat()
+    
+    try:
+        append_record(timestamp, farmer_id, detections, image_url)
+        flash(f"Record created successfully for {insect}", "success")
+    except Exception as e:
+        flash(f"Error creating record: {str(e)}", "danger")
+    
+    return redirect(url_for("admin_images"))
+
+
 # ==================== FARMER ROUTES ====================
 @app.route("/farmer/overview")
 def farmer_overview():
@@ -641,62 +674,146 @@ def farmer_images():
                                    selected_device=selected_device)
 
 # ==================== API ROUTES ====================
-from dateutil import parser
+# Add this import at the top of app.py
+from dateutil import parser as date_parser
 
+# Replace the api_analysis_data function
 @app.route("/api/analysis_data")
 def api_analysis_data():
     farmer_id = request.args.get("farmer_id")
     days = int(request.args.get("days", 7))
 
-    # ❗ FIX TABLE NAME
-    db = supabase.table("insect_records") \
-        .select("*") \
-        .eq("farmer_id", farmer_id) \
-        .order("timestamp", desc=False) \
-        .execute()
-
-    records = db.data or []
+    # Fetch records from Supabase
+    try:
+        db = supabase.table("insect_records") \
+            .select("*") \
+            .eq("farmer_id", farmer_id) \
+            .order("timestamp", desc=False) \
+            .execute()
+        
+        records = db.data or []
+    except Exception as e:
+        print(f"Error fetching analysis data: {e}")
+        return jsonify({
+            "labels": [],
+            "bar_data": [],
+            "line_labels": [],
+            "line_datasets": []
+        })
 
     if not records:
         return jsonify({
             "labels": [],
-            "whiteflies": [],
-            "aphids": [],
-            "fungus_gnat": [],
-            "beetles": [],
-            "thrips": []
+            "bar_data": [],
+            "line_labels": [],
+            "line_datasets": []
         })
 
     # Calculate cutoff date
     cutoff_date = datetime.utcnow() - timedelta(days=days)
 
-    # ❗ FIX TIMESTAMP PARSING (ISO 8601)
+    # Filter records by date
     filtered = []
     for r in records:
         try:
-            ts = parse(r["timestamp"])
+            # Parse ISO 8601 timestamp from Supabase
+            ts = date_parser.parse(r["timestamp"])
             if ts >= cutoff_date:
                 filtered.append(r)
-        except:
+        except Exception as e:
+            print(f"Error parsing timestamp: {e}")
             continue
 
-    # Prepare lists for graph
-    labels = [parse(r["timestamp"]).strftime("%Y-%m-%d") for r in filtered]
-    whiteflies = [r["raw_meta"]["whiteflies"] for r in filtered]
-    aphids = [r["raw_meta"]["aphids"] for r in filtered]
-    fungus_gnat = [r["raw_meta"]["fungus_gnat"] for r in filtered]
-    beetles = [r["raw_meta"]["beetles"] for r in filtered]
-    thrips = [r["raw_meta"]["thrips"] for r in filtered]
+    if not filtered:
+        return jsonify({
+            "labels": [],
+            "bar_data": [],
+            "line_labels": [],
+            "line_datasets": []
+        })
+
+    # Prepare data for BAR CHART (total counts per day)
+    daily_totals = {}
+    for r in filtered:
+        date_str = date_parser.parse(r["timestamp"]).strftime("%Y-%m-%d")
+        detections = r.get("detections", {})
+        
+        # Handle if detections is stored as string
+        if isinstance(detections, str):
+            try:
+                detections = json.loads(detections)
+            except:
+                detections = {}
+        
+        # Sum all insects for that day
+        day_total = 0
+        for insect, count in detections.items():
+            try:
+                day_total += int(count)
+            except:
+                pass
+        
+        if date_str not in daily_totals:
+            daily_totals[date_str] = 0
+        daily_totals[date_str] += day_total
+
+    bar_labels = sorted(daily_totals.keys())
+    bar_data = [daily_totals[label] for label in bar_labels]
+
+    # Prepare data for LINE CHART (individual insect trends)
+    insect_types = ["whiteflies", "aphids", "thrips", "beetle", "fungus gnats"]
+    daily_insect_data = {insect: {} for insect in insect_types}
+    
+    for r in filtered:
+        date_str = date_parser.parse(r["timestamp"]).strftime("%Y-%m-%d")
+        detections = r.get("detections", {})
+        
+        if isinstance(detections, str):
+            try:
+                detections = json.loads(detections)
+            except:
+                detections = {}
+        
+        for insect in insect_types:
+            if date_str not in daily_insect_data[insect]:
+                daily_insect_data[insect][date_str] = 0
+            
+            count = detections.get(insect, 0)
+            try:
+                daily_insect_data[insect][date_str] += int(count)
+            except:
+                pass
+
+    # Create line chart datasets
+    line_labels = sorted(set(date_str for insect_data in daily_insect_data.values() for date_str in insect_data.keys()))
+    
+    colors = {
+        "whiteflies": {"border": "rgba(255, 127, 80, 1)", "bg": "rgba(255, 127, 80, 0.2)"},
+        "aphids": {"border": "rgba(64, 156, 255, 1)", "bg": "rgba(64, 156, 255, 0.2)"},
+        "thrips": {"border": "rgba(76, 217, 100, 1)", "bg": "rgba(76, 217, 100, 0.2)"},
+        "beetle": {"border": "rgba(175, 82, 222, 1)", "bg": "rgba(175, 82, 222, 0.2)"},
+        "fungus gnats": {"border": "rgba(255, 204, 0, 1)", "bg": "rgba(255, 204, 0, 0.2)"}
+    }
+    
+    line_datasets = []
+    for insect in insect_types:
+        data = [daily_insect_data[insect].get(label, 0) for label in line_labels]
+        line_datasets.append({
+            "label": insect.title(),
+            "data": data,
+            "borderColor": colors[insect]["border"],
+            "backgroundColor": colors[insect]["bg"],
+            "borderWidth": 2,
+            "tension": 0.4,
+            "fill": True
+        })
 
     return jsonify({
-        "labels": labels,
-        "whiteflies": whiteflies,
-        "aphids": aphids,
-        "fungus_gnat": fungus_gnat,
-        "beetles": beetles,
-        "thrips": thrips
+        "labels": bar_labels,
+        "bar_data": bar_data,
+        "line_labels": line_labels,
+        "line_datasets": line_datasets
     })
-
 
 
 @app.route('/api/upload_result', methods=['POST'])
@@ -723,12 +840,11 @@ def upload_result():
         return {"error": "detections must be a JSON object"}, 400
     
     image_b64 = data.get("image_base64") or data.get("image_b64")
-    timestamp = parse(r['timestamp'])
-
+    timestamp = datetime.utcnow().isoformat()
     
     image_url = ""
     if image_b64:
-        filename = f"{parse(r['timestamp'])}_{farmer_id}.jpg"
+        filename = f"{timestamp.replace(':', '-')}_{farmer_id}.jpg"
         try:
             file_bytes = base64.b64decode(image_b64)
             image_url = upload_image_to_supabase(filename, file_bytes)
@@ -745,8 +861,10 @@ def upload_result():
         "farmer_id": farmer_id,
         "device_id": device_id,
         "image_url": image_url,
-        "detections": detections
+        "detections": detections,
+        "timestamp": timestamp
     }, 200
+
 
 @app.route("/static/<path:filename>")
 def serve_static(filename):
