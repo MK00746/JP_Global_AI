@@ -608,29 +608,6 @@ window.onclick = function(event) {
         closeModal();
     }
 }
-
-// Clipboard copy helper (device keys)
-function copyDeviceKey(el) {
-    const key = el.getAttribute('data-key');
-    if (!key) return;
-    navigator.clipboard.writeText(key).then(() => {
-        // show a small toast near the clicked element
-        const toast = document.createElement('div');
-        toast.innerText = 'Device key copied to clipboard';
-        toast.style.position = 'fixed';
-        toast.style.zIndex = 9999;
-        toast.style.right = '20px';
-        toast.style.bottom = '20px';
-        toast.style.padding = '10px 14px';
-        toast.style.background = 'rgba(0,0,0,0.8)';
-        toast.style.color = '#fff';
-        toast.style.borderRadius = '8px';
-        document.body.appendChild(toast);
-        setTimeout(() => { toast.remove(); }, 1800);
-    }).catch(err => {
-        alert('Copy failed: ' + err);
-    });
-}
 </script>
 """
 
@@ -1069,14 +1046,7 @@ ADMIN_DEVICES_HTML = """
                             </a>
                         </td>
                         <td>{{ device[3] }}</td>
-                        <td>
-                            <!-- clickable truncated key that copies full key to clipboard -->
-                            <code style="font-size: 12px; color: #409cff; cursor: pointer;"
-                                  onclick="copyDeviceKey(this)"
-                                  data-key="{{ device[2] }}">
-                                {{ device[2][:36] }}... <i class="fas fa-copy" style="margin-left:6px; font-size:11px;"></i>
-                            </code>
-                        </td>
+                        <td><code style="font-size: 12px; color: #409cff;">{{ device[2][:32] }}...</code></td>
                         <td>{{ device[4] }}</td>
                         <td>
                             <form method="POST" action="/admin/regenerate_key" style="display: inline;">
@@ -1098,8 +1068,6 @@ ADMIN_DEVICES_HTML = """
             {% endif %}
         </div>
     </div>
-
-    """ + SHARED_SCRIPTS + """
 </body>
 </html>
 """
@@ -1401,7 +1369,7 @@ ADMIN_IMAGES_HTML = """
                 Select from {{ available_images|length }} images found in your Supabase storage
             </p>
             
-            {% if available_images and available_images|length > 0 %}
+            {% if available_images|length > 0 %}
             <form method="POST" action="/admin/create_record_for_image">
                 <div class="form-grid">
                     <div class="form-group" style="grid-column: 1 / -1;">
@@ -1499,9 +1467,10 @@ ADMIN_IMAGES_HTML = """
         function previewImage() {
             const select = document.getElementById('imageSelect');
             const preview = document.getElementById('imagePreview');
-            const v = select.options[select.selectedIndex].getAttribute('data-url');
-            if (v) {
-                preview.src = v;
+            const selectedOption = select.options[select.selectedIndex];
+            
+            if (selectedOption.value) {
+                preview.src = selectedOption.getAttribute('data-url');
                 preview.style.display = 'block';
             } else {
                 preview.style.display = 'none';

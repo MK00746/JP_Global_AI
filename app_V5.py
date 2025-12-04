@@ -1,5 +1,5 @@
-# updated_app_py.py - JP Global InsectDetect with Professional Sidebar Navigation
-import os, base64, sqlite3, uuid, json
+# app.py - JP Global InsectDetect with Professional Sidebar Navigation
+import os, base64, sqlite3, uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from flask_cors import CORS
@@ -152,23 +152,26 @@ def load_records(farmer_id=None, device_id=None):
     """Load records from Supabase, optionally filtered by farmer_id or device_id"""
     try:
         if device_id:
+            # Filter by specific device_id
             res = supabase.table("insect_records").select("*").eq("device_id", str(device_id)).order("timestamp", desc=True).execute()
         elif farmer_id:
+            # Filter by farmer_id
             res = supabase.table("insect_records").select("*").eq("farmer_id", farmer_id).order("timestamp", desc=True).execute()
         else:
+            # Get all records
             res = supabase.table("insect_records").select("*").order("timestamp", desc=True).execute()
         return res.data or []
-    except Exception as e:
-        print("Supabase load_records error:", e)
+    except:
         return []
 
-def append_record(timestamp, farmer_id, detections_json, image_url, device_id=None):
-    """Append record to Supabase with detections stored as JSON"""
+def append_record(timestamp, farmer_id, insect, count, image_url, device_id=None):
+    """Append record to Supabase with optional device_id"""
     try:
         record = {
             "timestamp": timestamp,
             "farmer_id": farmer_id,
-            "detections": detections_json,  # JSON object or string
+            "insect": insect,
+            "count": count,
             "image_url": image_url
         }
         if device_id:
@@ -188,14 +191,12 @@ def upload_image_to_supabase(filename: str, data: bytes):
             "content-type": "image/jpeg"
         })
         public_url = supabase.storage.from_(bucket).get_public_url(file_path)
-        # result of get_public_url has structure {"publicURL": "..."} in some sdk versions; handle both
-        if isinstance(public_url, dict):
-            return public_url.get("publicURL") or public_url.get("public_url") or public_url.get("url")
         return public_url
     except Exception as e:
         print(f"Upload error: {e}")
         return None
 
+    
 def list_images_from_supabase():
     """List all images from Supabase storage"""
     bucket = "insect-images"
@@ -204,61 +205,17 @@ def list_images_from_supabase():
         image_list = []
         for file in files:
             filename = file['name']
-            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+            if filename.endswith(('.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG')):
                 image_url = supabase.storage.from_(bucket).get_public_url(f"insects/{filename}")
-                # normalize structure
-                if isinstance(image_url, dict):
-                    url = image_url.get("publicURL") or image_url.get("public_url") or image_url.get("url")
-                else:
-                    url = image_url
                 image_list.append({
                     'filename': filename,
-                    'url': url
+                    'url': image_url
                 })
         return image_list
     except Exception as e:
         print(f"Error listing images: {e}")
         return []
-
-# Server-side normalization so templates that expect row.insect and row.count keep working
-def normalize_records(records):
-    """
-    For each record (dict-like from supabase), add:
-      - record['insect']    : string summary like "whiteflies:5, aphids:2"
-      - record['count']     : int total count
-    """
-    out = []
-    for r in records:
-        rec = dict(r)  # shallow copy
-        detections = rec.get("detections", {})
-        # sometimes supabase returns JSON string; parse if necessary
-        if isinstance(detections, str):
-            try:
-                detections = json.loads(detections)
-            except:
-                detections = {}
-        # ensure dict
-        if not isinstance(detections, dict):
-            detections = {}
-        # create summary and count
-        parts = []
-        total = 0
-        for k, v in detections.items():
-            try:
-                c = int(v)
-            except:
-                try:
-                    c = int(float(v))
-                except:
-                    c = 0
-            if c > 0:
-                parts.append(f"{k}:{c}")
-                total += c
-        rec['insect'] = ", ".join(parts) if parts else "N/A"
-        rec['count'] = total
-        out.append(rec)
-    return out
-
+    
 # Session Management
 def login_user(username):
     session['username'] = username
@@ -328,26 +285,14 @@ def admin_overview():
     total_devices = len(devices)
     total_farmers = len(farmers)
     
-    # Parse detections and calculate totals
-    insect_totals = {"whiteflies": 0, "aphids": 0, "thrips": 0, "beetle": 0, "fungus gnats": 0}
-    total_insects = 0
-    
-    for record in records:
-        detections = record.get("detections", {})
-        if isinstance(detections, str):
-            try:
-                detections = json.loads(detections)
-            except:
-                detections = {}
-        for insect, count in detections.items():
-            try:
-                c = int(count)
-            except:
-                c = 0
-            insect_totals[insect] = insect_totals.get(insect, 0) + c
-            total_insects += c
-    
-    insect_summary = [{"insect": k, "count": v} for k, v in insect_totals.items() if v > 0]
+    if len(records) > 0:
+        df = pd.DataFrame(records)
+        df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
+        total_insects = int(df["count"].sum())
+        insect_summary = df.groupby("insect")["count"].sum().reset_index().to_dict(orient="records")
+    else:
+        total_insects = 0
+        insect_summary = []
     
     from html_templates import ADMIN_OVERVIEW_HTML
     return render_template_string(ADMIN_OVERVIEW_HTML, 
@@ -386,32 +331,18 @@ def admin_device_analytics(device_id):
     
     records = load_records(device_id=device_id)
     
-    # parse detections for summary
-    insect_totals = {"whiteflies": 0, "aphids": 0, "thrips": 0, "beetle": 0, "fungus gnats": 0}
-    for record in records:
-        detections = record.get("detections", {})
-        if isinstance(detections, str):
-            try:
-                detections = json.loads(detections)
-            except:
-                detections = {}
-        for insect, count in detections.items():
-            try:
-                c = int(count)
-            except:
-                c = 0
-            insect_totals[insect] = insect_totals.get(insect, 0) + c
-    
-    summary = [{"insect": k, "count": v} for k, v in insect_totals.items() if v > 0]
-    
-    # normalize for template compatibility
-    records_normalized = normalize_records(records)
+    if len(records) > 0:
+        df = pd.DataFrame(records)
+        df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
+        summary = df.groupby("insect")["count"].sum().reset_index().to_dict(orient="records")
+    else:
+        summary = []
     
     from html_templates import ADMIN_DEVICE_ANALYTICS_HTML
     return render_template_string(ADMIN_DEVICE_ANALYTICS_HTML,
                                    username=user['username'],
                                    device=device,
-                                   records=records_normalized,
+                                   records=records,
                                    summary=summary)
 
 @app.route("/admin/dataset")
@@ -428,12 +359,10 @@ def admin_dataset():
     else:
         records = load_records()
     
-    records_normalized = normalize_records(records)
-    
     from html_templates import ADMIN_DATASET_HTML
     return render_template_string(ADMIN_DATASET_HTML,
                                    username=user['username'],
-                                   records=records_normalized,
+                                   records=records,
                                    farmers=farmers,
                                    selected_farmer=selected_farmer)
 
@@ -453,18 +382,17 @@ def admin_images():
     
     # Filter records with images only
     records_with_images = [r for r in records if r.get("image_url")]
-    records_normalized = normalize_records(records_with_images)
     
-    # list available images from supabase storage for linking (used by admin form)
+    # ADD THIS LINE - Get all images from Supabase
     available_images = list_images_from_supabase()
     
     from html_templates import ADMIN_IMAGES_HTML
     return render_template_string(ADMIN_IMAGES_HTML,
                                    username=user['username'],
-                                   records=records_normalized,
+                                   records=records_with_images,
                                    farmers=farmers,
                                    selected_farmer=selected_farmer,
-                                   available_images=available_images)
+                                   available_images=available_images)  # ADD THIS
 
 @app.route("/admin/users")
 def admin_users():
@@ -533,6 +461,31 @@ def admin_regenerate_key():
     flash(f"Key regenerated. New key: {new_key}", "success")
     return redirect(url_for("admin_devices"))
 
+
+# ADD THIS NEW ROUTE HERE
+@app.route("/admin/create_record_for_image", methods=["POST"])
+def admin_create_record_for_image():
+    user = current_user()
+    if not user or user['role'] != 'admin':
+        return redirect(url_for("login"))
+    
+    image_url = request.form.get("image_url")
+    farmer_id = request.form.get("farmer_id")
+    insect = request.form.get("insect", "unknown")
+    count = int(request.form.get("count", 1))
+    
+    if not image_url or not farmer_id:
+        flash("Image URL and Farmer ID are required", "danger")
+        return redirect(url_for("admin_images"))
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    append_record(timestamp, farmer_id, insect, count, image_url)
+    
+    flash(f"Record created successfully for {insect}", "success")
+    return redirect(url_for("admin_images"))
+
+
+
 # ==================== FARMER ROUTES ====================
 @app.route("/farmer/overview")
 def farmer_overview():
@@ -542,30 +495,22 @@ def farmer_overview():
     
     records = load_records(farmer_id=user['farmer_id'])
     
-    # Parse detections
-    insect_totals = {"whiteflies": 0, "aphids": 0, "thrips": 0, "beetle": 0, "fungus gnats": 0}
-    total_count = 0
-    
-    for record in records:
-        detections = record.get("detections", {})
-        if isinstance(detections, str):
-            try:
-                detections = json.loads(detections)
-            except:
-                detections = {}
-        for insect, count in detections.items():
-            try:
-                c = int(count)
-            except:
-                c = 0
-            insect_totals[insect] = insect_totals.get(insect, 0) + c
-            total_count += c
-    
-    # Find top insect
-    top_insect = max(insect_totals, key=insect_totals.get) if any(insect_totals.values()) else "N/A"
-    top_count = insect_totals.get(top_insect, 0)
-    
-    insect_summary = [{"insect": k, "count": v} for k, v in insect_totals.items() if v > 0]
+    if len(records) > 0:
+        df = pd.DataFrame(records)
+        df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
+        
+        # Find insect with highest count
+        insect_totals = df.groupby("insect")["count"].sum()
+        top_insect = insect_totals.idxmax() if len(insect_totals) > 0 else "N/A"
+        top_count = int(insect_totals.max()) if len(insect_totals) > 0 else 0
+        
+        total_count = int(df["count"].sum())
+        insect_summary = df.groupby("insect")["count"].sum().reset_index().to_dict(orient="records")
+    else:
+        top_insect = "N/A"
+        top_count = 0
+        total_count = 0
+        insect_summary = []
     
     from html_templates import FARMER_OVERVIEW_HTML
     return render_template_string(FARMER_OVERVIEW_HTML,
@@ -584,13 +529,12 @@ def farmer_analysis():
         return redirect(url_for("login"))
     
     records = load_records(farmer_id=user['farmer_id'])
-    records_normalized = normalize_records(records)
     
     from html_templates import FARMER_ANALYSIS_HTML
     return render_template_string(FARMER_ANALYSIS_HTML,
                                    username=user['username'],
                                    farmer_id=user['farmer_id'],
-                                   records=records_normalized)
+                                   records=records)
 
 @app.route("/farmer/dataset")
 def farmer_dataset():
@@ -606,12 +550,10 @@ def farmer_dataset():
     else:
         records = load_records(farmer_id=user['farmer_id'])
     
-    records_normalized = normalize_records(records)
-    
     from html_templates import FARMER_DATASET_HTML
     return render_template_string(FARMER_DATASET_HTML,
                                    username=user['username'],
-                                   records=records_normalized,
+                                   records=records,
                                    devices=devices,
                                    selected_device=selected_device)
 
@@ -631,12 +573,11 @@ def farmer_images():
     
     # Filter records with images only
     records_with_images = [r for r in records if r.get("image_url")]
-    records_normalized = normalize_records(records_with_images)
     
     from html_templates import FARMER_IMAGES_HTML
     return render_template_string(FARMER_IMAGES_HTML,
                                    username=user['username'],
-                                   records=records_normalized,
+                                   records=records_with_images,
                                    devices=devices,
                                    selected_device=selected_device)
 
@@ -655,55 +596,48 @@ def api_analysis_data():
     if len(records) == 0:
         return jsonify({"labels": [], "bar_data": [], "line_data": []})
     
+    df = pd.DataFrame(records)
+    df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    
     # Filter by date range
     cutoff_date = datetime.now() - timedelta(days=days)
-    filtered_records = [r for r in records if datetime.strptime(r['timestamp'], "%Y-%m-%d %H:%M:%S") >= cutoff_date]
+    df_filtered = df[df["timestamp"] >= cutoff_date]
     
     # Five insects
     insects = ["whiteflies", "aphids", "thrips", "beetle", "fungus gnats"]
     
     # Bar chart data (total per insect)
-    insect_totals = {insect: 0 for insect in insects}
-    daily_data = {}
-    
-    for record in filtered_records:
-        detections = record.get("detections", {})
-        if isinstance(detections, str):
-            try:
-                detections = json.loads(detections)
-            except:
-                detections = {}
-        date_str = record['timestamp'].split(' ')[0]
-        
-        if date_str not in daily_data:
-            daily_data[date_str] = {insect: 0 for insect in insects}
-        
-        for insect, count in detections.items():
-            if insect in insect_totals:
-                try:
-                    c = int(count)
-                except:
-                    c = 0
-                insect_totals[insect] += c
-                daily_data[date_str][insect] += c
-    
-    bar_data = [insect_totals[insect] for insect in insects]
+    bar_data = []
+    for insect in insects:
+        count = int(df_filtered[df_filtered["insect"] == insect]["count"].sum())
+        bar_data.append(count)
     
     # Line chart data (daily trends)
+    df_filtered["date"] = df_filtered["timestamp"].dt.date
+    daily_data = df_filtered.groupby(["date", "insect"])["count"].sum().reset_index()
+    
+    # Get last N days dates
     dates = pd.date_range(end=datetime.now(), periods=min(days, 30), freq='D')
     date_labels = [d.strftime("%Y-%m-%d") for d in dates]
     
+    # Create line data for each insect
+    line_datasets = []
     colors = [
-        "rgba(255, 127, 80, 0.8)",
-        "rgba(64, 156, 255, 0.8)",
-        "rgba(76, 217, 100, 0.8)",
-        "rgba(175, 82, 222, 0.8)",
-        "rgba(255, 204, 0, 0.8)"
+        "rgba(255, 127, 80, 0.8)",   # whiteflies - orange
+        "rgba(64, 156, 255, 0.8)",   # aphids - blue
+        "rgba(76, 217, 100, 0.8)",   # thrips - green
+        "rgba(175, 82, 222, 0.8)",   # beetle - purple
+        "rgba(255, 204, 0, 0.8)"     # fungus gnats - gold
     ]
     
-    line_datasets = []
     for idx, insect in enumerate(insects):
-        insect_data = [daily_data.get(date_str, {}).get(insect, 0) for date_str in date_labels]
+        insect_data = []
+        for date_str in date_labels:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+            matching = daily_data[(daily_data["date"] == date_obj) & (daily_data["insect"] == insect)]
+            count = int(matching["count"].sum()) if len(matching) > 0 else 0
+            insect_data.append(count)
         
         line_datasets.append({
             "label": insect.title(),
@@ -720,9 +654,64 @@ def api_analysis_data():
         "line_datasets": line_datasets
     })
 
+@app.route("/upload", methods=["POST"])
+def upload():
+    data = request.get_json(silent=True)
+    
+    # Case 1: JSON body
+    if data:
+        farmer_id = data.get("farmer_id", "unknown")
+        insect = data.get("insect", "unknown")
+        count = int(data.get("count", 0))
+        image_b64 = data.get("image_b64")
+        
+        if not image_b64:
+            return {"error": "No image data received"}, 400
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{farmer_id}.jpg"
+        
+        try:
+            file_bytes = base64.b64decode(image_b64)
+            image_url = upload_image_to_supabase(filename, file_bytes)
+            if not image_url:
+                return {"error": "Image upload failed"}, 500
+        except Exception as e:
+            return {"error": "image upload failed", "detail": str(e)}, 500
+        
+        append_record(timestamp, farmer_id, insect, count, image_url)
+        
+        return {
+            "status": "ok",
+            "farmer_id": farmer_id,
+            "image_url": image_url,
+            "insect": insect,
+            "count": count
+        }, 200
+    
+    # Case 2: Form upload
+    if 'image' in request.files:
+        f = request.files['image']
+        farmer_id = request.form.get("farmer_id", "unknown")
+        insect = request.form.get("insect", "unknown")
+        count = int(request.form.get("count", 0))
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{farmer_id}.jpg"
+        file_bytes = f.read()
+        
+        image_url = upload_image_to_supabase(filename, file_bytes)
+        if not image_url:
+            return {"error": "Image upload failed"}, 500
+            
+        append_record(timestamp, farmer_id, insect, count, image_url)
+        return {"status": "ok", "image_url": image_url}, 200
+    
+    return {"error": "Invalid upload format"}, 400
+
 @app.route('/api/upload_result', methods=['POST'])
 def upload_result():
-    """Device upload endpoint with device key authentication - supports multiple insect detections"""
+    """Device upload endpoint with device key authentication"""
     device_key = request.headers.get("Device-Key")
     if not device_key:
         return {"error": "Device-Key header missing"}, 400
@@ -738,10 +727,11 @@ def upload_result():
     if not data:
         return {"error": "invalid or missing JSON"}, 400
     
-    # Expect detections as JSON object: {"whiteflies": 5, "aphids": 2, "thrips": 3}
-    detections = data.get("detections", {})
-    if not isinstance(detections, dict):
-        return {"error": "detections must be a JSON object"}, 400
+    insect = data.get("insect", "unknown")
+    try:
+        count = int(data.get("count", 0))
+    except:
+        count = 0
     
     image_b64 = data.get("image_base64") or data.get("image_b64")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -752,20 +742,18 @@ def upload_result():
         try:
             file_bytes = base64.b64decode(image_b64)
             image_url = upload_image_to_supabase(filename, file_bytes)
-            if not image_url:
-                return {"error": "image upload failed"}, 500
         except Exception as e:
             return {"error": "image upload failed", "detail": str(e)}, 500
     
-    # Store detections as JSON
-    append_record(timestamp, farmer_id, detections, image_url, device_id=device_id)
+    append_record(timestamp, farmer_id, insect, count, image_url, device_id=device_id)
     
     return {
         "status": "ok",
         "farmer_id": farmer_id,
         "device_id": device_id,
         "image_url": image_url,
-        "detections": detections
+        "insect": insect,
+        "count": count
     }, 200
 
 @app.route("/static/<path:filename>")
