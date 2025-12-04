@@ -798,13 +798,9 @@ def api_analysis_data():
             except:
                 pass
 
-    # Get all unique dates and sort them
-    all_dates = set()
-    for insect_data in daily_insect_data.values():
-        all_dates.update(insect_data.keys())
-    line_labels = sorted(all_dates)
-
     # Create line chart datasets
+    line_labels = sorted(set(date_str for insect_data in daily_insect_data.values() for date_str in insect_data.keys()))
+    
     colors = {
         "whiteflies": {"border": "rgba(255, 127, 80, 1)", "bg": "rgba(255, 127, 80, 0.2)"},
         "aphids": {"border": "rgba(64, 156, 255, 1)", "bg": "rgba(64, 156, 255, 0.2)"},
@@ -826,19 +822,13 @@ def api_analysis_data():
             "fill": True
         })
 
-    print(f"Analysis API - Farmer: {farmer_id}, Days: {days}")
-    print(f"Filtered records: {len(filtered)}")
-    print(f"Bar labels: {bar_labels}")
-    print(f"Bar data: {bar_data}")
-    print(f"Line labels: {line_labels}")
-    print(f"Line datasets count: {len(line_datasets)}")
-
     return jsonify({
         "labels": bar_labels,
         "bar_data": bar_data,
         "line_labels": line_labels,
         "line_datasets": line_datasets
     })
+
 
 @app.route('/api/upload_result', methods=['POST'])
 def upload_result():
@@ -888,37 +878,6 @@ def upload_result():
         "detections": detections,
         "timestamp": timestamp
     }, 200
-
-@app.route("/debug/records/<farmer_id>")
-def debug_records(farmer_id):
-    """Debug endpoint to check what's in the database"""
-    user = current_user()
-    if not user:
-        return {"error": "unauthorized"}, 401
-    
-    records = load_records(farmer_id=farmer_id)
-    
-    # Show first 5 records with parsed detections
-    debug_info = []
-    for r in records[:5]:
-        detections = r.get("detections", {})
-        if isinstance(detections, str):
-            try:
-                detections = json.loads(detections)
-            except:
-                detections = {}
-        
-        debug_info.append({
-            "timestamp": r.get("timestamp"),
-            "detections": detections,
-            "farmer_id": r.get("farmer_id"),
-            "device_id": r.get("device_id")
-        })
-    
-    return jsonify({
-        "total_records": len(records),
-        "sample_records": debug_info
-    })
 
 
 @app.route("/static/<path:filename>")
