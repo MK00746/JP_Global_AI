@@ -651,7 +651,9 @@ def api_analysis_data():
     # ❗ FIX TABLE NAME
     db = supabase.table("insect_records") \
         .select("*") \
-        .eq("farmer_id", farmer_id) 
+        .eq("farmer_id", farmer_id) \
+        .order("timestamp", desc=False) \
+        .execute()
 
     records = db.data or []
 
