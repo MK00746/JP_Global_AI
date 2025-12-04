@@ -641,84 +641,52 @@ def farmer_images():
                                    selected_device=selected_device)
 
 # ==================== API ROUTES ====================
+from dateutil import parser
+
 @app.route("/api/analysis_data")
 def api_analysis_data():
-    """API endpoint for fetching filtered analysis data"""
     farmer_id = request.args.get("farmer_id")
     days = int(request.args.get("days", 7))
-    
+
     if not farmer_id:
-        return jsonify({"error": "farmer_id required"}), 400
-    
-    records = load_records(farmer_id=farmer_id)
-    
-    if len(records) == 0:
-        return jsonify({"labels": [], "bar_data": [], "line_data": []})
-    
-    # Filter by date range
-    cutoff_date = datetime.now() - timedelta(days=days)
-    filtered_records = [r for r in records if datetime.strptime(r['timestamp'], "%Y-%m-%d %H:%M:%S") >= cutoff_date]
-    
-    # Five insects
-    insects = ["whiteflies", "aphids", "thrips", "beetle", "fungus gnats"]
-    
-    # Bar chart data (total per insect)
-    insect_totals = {insect: 0 for insect in insects}
-    daily_data = {}
-    
-    for record in filtered_records:
-        detections = record.get("detections", {})
-        if isinstance(detections, str):
-            try:
-                detections = json.loads(detections)
-            except:
-                detections = {}
-        date_str = record['timestamp'].split(' ')[0]
-        
-        if date_str not in daily_data:
-            daily_data[date_str] = {insect: 0 for insect in insects}
-        
+        return {"error": "farmer_id missing"}, 400
+
+    # Fetch records
+    db = supabase.table("detections").select("*").eq("farmer_id", farmer_id).order("timestamp", desc=False).execute()
+    records = db.data or []
+
+    # Convert timestamps safely (handles ISO + naive)
+    parsed_records = []
+    for r in records:
+        try:
+            ts = r["timestamp"]
+            dt = parser.parse(ts)   # THIS WORKS with "2025-11-20T09:17:31+00:00"
+            r["parsed_ts"] = dt
+            parsed_records.append(r)
+        except Exception as e:
+            print("Timestamp parse error:", ts, str(e))
+            continue
+
+    # Filter by date
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    filtered = [r for r in parsed_records if r["parsed_ts"] >= cutoff_date]
+
+    # Aggregate counts per insect
+    insect_totals = {}
+    for r in filtered:
+        raw = r.get("raw_meta") or {}
+        detections = raw.get("detections") or {}
+
         for insect, count in detections.items():
-            if insect in insect_totals:
-                try:
-                    c = int(count)
-                except:
-                    c = 0
-                insect_totals[insect] += c
-                daily_data[date_str][insect] += c
-    
-    bar_data = [insect_totals[insect] for insect in insects]
-    
-    # Line chart data (daily trends)
-    dates = pd.date_range(end=datetime.now(), periods=min(days, 30), freq='D')
-    date_labels = [d.strftime("%Y-%m-%d") for d in dates]
-    
-    colors = [
-        "rgba(255, 127, 80, 0.8)",
-        "rgba(64, 156, 255, 0.8)",
-        "rgba(76, 217, 100, 0.8)",
-        "rgba(175, 82, 222, 0.8)",
-        "rgba(255, 204, 0, 0.8)"
-    ]
-    
-    line_datasets = []
-    for idx, insect in enumerate(insects):
-        insect_data = [daily_data.get(date_str, {}).get(insect, 0) for date_str in date_labels]
-        
-        line_datasets.append({
-            "label": insect.title(),
-            "data": insect_data,
-            "borderColor": colors[idx],
-            "backgroundColor": colors[idx].replace("0.8", "0.2"),
-            "tension": 0.4
-        })
-    
-    return jsonify({
-        "labels": insects,
-        "bar_data": bar_data,
-        "line_labels": date_labels,
-        "line_datasets": line_datasets
-    })
+            insect_totals[insect] = insect_totals.get(insect, 0) + count
+
+    # Format response
+    return {
+        "records": filtered,
+        "insect_totals": insect_totals,
+        "total_images": len(filtered)
+    }
+
 
 @app.route('/api/upload_result', methods=['POST'])
 def upload_result():
