@@ -840,6 +840,25 @@ def api_analysis_data():
         "line_datasets": line_datasets
     })
 
+@app.route("/debug/analysis/<farmer_id>")
+def debug_analysis(farmer_id):
+    records = load_records(farmer_id=farmer_id)
+    
+    debug_data = {
+        "total_records": len(records),
+        "sample_records": []
+    }
+    
+    for r in records[:5]:
+        debug_data["sample_records"].append({
+            "timestamp": r.get("timestamp"),
+            "detections": r.get("detections"),
+            "farmer_id": r.get("farmer_id")
+        })
+    
+    return jsonify(debug_data)
+
+
 @app.route('/api/upload_result', methods=['POST'])
 def upload_result():
     """Device upload endpoint with device key authentication - supports multiple insect detections"""
