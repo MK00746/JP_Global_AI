@@ -724,7 +724,8 @@ def api_analysis_data():
         })
 
     # Calculate cutoff date
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    from datetime import timezone
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
     # Filter records by date
     filtered = []
