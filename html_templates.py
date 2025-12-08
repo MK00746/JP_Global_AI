@@ -1790,15 +1790,18 @@ FARMER_ANALYSIS_HTML = """
             const data = await response.json();
             
             // Update Bar Chart
+            console.log('Destroying old chart...');
             if (barChart) barChart.destroy();
             const barCtx = document.getElementById('barChart').getContext('2d');
             barChart = new Chart(barCtx, {
                 type: 'bar',
                 data: {
-                    labels: data.labels,
+                    labels: data.labels || [],
                     datasets: [{
                         label: 'Total Count',
-                        data: data.bar_data,
+                        data: data.bar_data || [],
+                        label: 'Total Count',
+                        labels: [...data.labels],
                         backgroundColor: 'rgba(255, 127, 80, 0.6)',
                         borderColor: 'rgba(255, 127, 80, 1)',
                         borderWidth: 2,
