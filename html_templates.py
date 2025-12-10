@@ -20,7 +20,6 @@ SIDEBAR_STYLES = """
     
     /* Mobile Menu Button (Hamburger) */
     .mobile-menu-btn {
-        display: none;
         position: fixed;
         top: 20px;
         left: 20px;
@@ -34,10 +33,10 @@ SIDEBAR_STYLES = """
         border-radius: 12px;
         border: 1px solid rgba(255, 127, 80, 0.3);
         backdrop-filter: blur(10px);
-        display: none;
         align-items: center;
         justify-content: center;
         transition: all 0.3s ease;
+        display: none; /* Hidden by default, shown in mobile via media query */
     }
     
     .mobile-menu-btn:hover {
