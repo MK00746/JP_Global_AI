@@ -866,28 +866,52 @@ SIDEBAR_STYLES = """
 # Shared Scripts
 SHARED_SCRIPTS = """
 <script>
-// Sidebar toggle for mobile
+// Sidebar toggle for mobile - DEBUGGED VERSION
 function toggleSidebar() {
+    console.log('toggleSidebar called'); // Debug log
+    
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.querySelector('.sidebar-overlay');
     
-    sidebar.classList.toggle('open');
-    overlay.classList.toggle('active');
+    console.log('Sidebar found:', sidebar); // Debug log
+    console.log('Overlay found:', overlay); // Debug log
+    
+    if (sidebar) {
+        sidebar.classList.toggle('open');
+        console.log('Sidebar classes:', sidebar.className); // Debug log
+    }
+    
+    if (overlay) {
+        overlay.classList.toggle('active');
+        console.log('Overlay classes:', overlay.className); // Debug log
+    }
 }
 
 // Close sidebar when clicking overlay
 function closeSidebar() {
+    console.log('closeSidebar called'); // Debug log
+    
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.querySelector('.sidebar-overlay');
     
-    sidebar.classList.remove('open');
-    overlay.classList.remove('active');
+    if (sidebar) {
+        sidebar.classList.remove('open');
+    }
+    
+    if (overlay) {
+        overlay.classList.remove('active');
+    }
 }
 
 // Close sidebar when clicking any menu item (mobile only)
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded'); // Debug log
+    
     const menuItems = document.querySelectorAll('.menu-item');
     const isMobile = window.innerWidth <= 768;
+    
+    console.log('Menu items found:', menuItems.length); // Debug log
+    console.log('Is mobile:', isMobile); // Debug log
     
     if (isMobile) {
         menuItems.forEach(item => {
@@ -900,14 +924,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Image modal functions
 function openModal(imageSrc) {
-    document.getElementById('imageModal').style.display = 'block';
-    document.getElementById('modalImage').src = imageSrc;
-    document.body.style.overflow = 'hidden';
+    const modal = document.getElementById('imageModal');
+    const modalImage = document.getElementById('modalImage');
+    
+    if (modal && modalImage) {
+        modal.style.display = 'block';
+        modalImage.src = imageSrc;
+        document.body.style.overflow = 'hidden';
+    }
 }
 
 function closeModal() {
-    document.getElementById('imageModal').style.display = 'none';
-    document.body.style.overflow = 'auto';
+    const modal = document.getElementById('imageModal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
 }
 
 window.onclick = function(event) {
@@ -986,7 +1018,6 @@ style.textContent = `
 document.head.appendChild(style);
 </script>
 """
-
 # LOGIN TEMPLATE
 LOGIN_HTML = """
 <!DOCTYPE html>
