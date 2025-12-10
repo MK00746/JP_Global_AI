@@ -1333,6 +1333,8 @@ ADMIN_OVERVIEW_HTML = """
         </div>
     </div>
     
+    """ + SHARED_SCRIPTS + """
+    
     <script>
         const summaryData = {{ insect_summary|tojson }};
         
@@ -1377,7 +1379,6 @@ ADMIN_OVERVIEW_HTML = """
 </body>
 </html>
 """
-
 ADMIN_DEVICES_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -1735,10 +1736,11 @@ ADMIN_DATASET_HTML = """
             {% endif %}
         </div>
     </div>
+    
+    """ + SHARED_SCRIPTS + """
 </body>
 </html>
 """
-
 ADMIN_IMAGES_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -1990,10 +1992,11 @@ ADMIN_USERS_HTML = """
             {% endif %}
         </div>
     </div>
+    
+    """ + SHARED_SCRIPTS + """
 </body>
 </html>
 """
-
 # === FARMER TEMPLATES ===
 
 def farmer_sidebar(active_page):
