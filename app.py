@@ -23,6 +23,11 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SESSION_SECRET", "replace_with_random_secret_in_prod")
 CORS(app)
 
+
+from flask import Flask, send_from_directory
+
+
+
 # Database Helper Functions
 def init_users_db():
     conn = sqlite3.connect(USERS_DB)
@@ -107,6 +112,11 @@ def create_device(device_name, farmer_id):
     return {"id": row[0], "device_key": row[1]}
 
 import traceback
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory('static', 'favicon.ico')
+
 
 # Add this decorator to log all errors
 @app.errorhandler(500)
