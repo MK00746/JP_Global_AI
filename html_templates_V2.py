@@ -15,57 +15,6 @@ SIDEBAR_STYLES = """
         min-height: 100vh;
         color: #ffffff;
         display: flex;
-        overflow-x: hidden;
-    }
-    
-    /* Mobile Menu Button (Hamburger) */
-    .mobile-menu-btn {
-        display: none;
-        position: fixed;
-        top: 20px;
-        left: 20px;
-        z-index: 2001;
-        font-size: 28px;
-        color: #ffffff;
-        cursor: pointer;
-        background: rgba(255, 127, 80, 0.15);
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 127, 80, 0.3);
-        backdrop-filter: blur(10px);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.3s ease;
-    }
-    
-    .mobile-menu-btn:hover {
-        background: rgba(255, 127, 80, 0.25);
-        transform: scale(1.05);
-    }
-    
-    .mobile-menu-btn:active {
-        transform: scale(0.95);
-    }
-    
-    /* Overlay for mobile sidebar */
-    .sidebar-overlay {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.7);
-        backdrop-filter: blur(4px);
-        z-index: 999;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-    }
-    
-    .sidebar-overlay.active {
-        opacity: 1;
     }
     
     /* Sidebar Styles */
@@ -80,27 +29,7 @@ SIDEBAR_STYLES = """
         left: 0;
         top: 0;
         overflow-y: auto;
-        overflow-x: hidden;
         z-index: 1000;
-        transition: transform 0.3s ease-in-out;
-    }
-    
-    /* Sidebar scrollbar styling */
-    .sidebar::-webkit-scrollbar {
-        width: 6px;
-    }
-    
-    .sidebar::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.02);
-    }
-    
-    .sidebar::-webkit-scrollbar-thumb {
-        background: rgba(255, 127, 80, 0.3);
-        border-radius: 3px;
-    }
-    
-    .sidebar::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 127, 80, 0.5);
     }
     
     .sidebar-logo {
@@ -175,8 +104,6 @@ SIDEBAR_STYLES = """
         flex: 1;
         padding: 32px;
         width: calc(100% - 260px);
-        min-height: 100vh;
-        transition: margin-left 0.3s ease-in-out, width 0.3s ease-in-out;
     }
     
     .page-header {
@@ -280,8 +207,6 @@ SIDEBAR_STYLES = """
         justify-content: space-between;
         align-items: center;
         margin-bottom: 24px;
-        flex-wrap: wrap;
-        gap: 16px;
     }
     
     .chart-title {
@@ -303,7 +228,6 @@ SIDEBAR_STYLES = """
     table {
         width: 100%;
         border-collapse: collapse;
-        min-width: 600px;
     }
     
     thead tr {
@@ -486,12 +410,10 @@ SIDEBAR_STYLES = """
         display: flex;
         align-items: center;
         gap: 16px;
-        flex-wrap: wrap;
     }
     
     .filter-bar select {
         flex: 1;
-        min-width: 200px;
         padding: 10px 16px;
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.1);
@@ -518,7 +440,6 @@ SIDEBAR_STYLES = """
         margin: 5% auto;
         max-width: 800px;
         animation: zoomIn 0.3s ease;
-        padding: 0 20px;
     }
     
     .modal-content img {
@@ -621,7 +542,6 @@ SIDEBAR_STYLES = """
     .date-range-buttons {
         display: flex;
         gap: 12px;
-        flex-wrap: wrap;
     }
     
     .date-btn {
@@ -647,267 +567,39 @@ SIDEBAR_STYLES = """
         border-color: transparent;
     }
     
-    /* ============================================
-       RESPONSIVE DESIGN - MOBILE & TABLET
-       ============================================ */
-    
-    /* Tablet View (768px - 1024px) */
-    @media (max-width: 1024px) {
-        .stats-grid {
-            grid-template-columns: repeat(2, 1fr);
-        }
-        
-        .form-grid {
-            grid-template-columns: 1fr;
-        }
-        
-        .image-gallery {
-            grid-template-columns: repeat(2, 1fr);
-        }
-    }
-    
-    /* Mobile View (up to 768px) - CRITICAL SECTION */
+    /* Responsive */
     @media (max-width: 768px) {
-        body {
-            overflow-x: hidden;
-        }
-        
-        /* Show hamburger button */
-        .mobile-menu-btn {
-            display: flex !important;
-        }
-        
-        /* Hide sidebar by default (slide off-screen) */
         .sidebar {
-            transform: translateX(-100%);
+            width: 220px;
         }
         
-        /* Show sidebar when open */
-        .sidebar.open {
-            transform: translateX(0);
-            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
-        }
-        
-        /* Show overlay when sidebar is open */
-        .sidebar-overlay.active {
-            display: block;
-        }
-        
-        /* Main content takes full width */
         .main-content {
-            margin-left: 0 !important;
-            width: 100% !important;
-            padding: 80px 16px 20px 16px;
+            margin-left: 220px;
+            width: calc(100% - 220px);
+            padding: 20px;
         }
         
-        /* Adjust page header */
-        .page-header {
-            margin-bottom: 24px;
-            padding-bottom: 16px;
-        }
-        
-        .page-title {
-            font-size: 24px;
-        }
-        
-        .page-subtitle {
-            font-size: 13px;
-        }
-        
-        /* Stats grid becomes single column */
         .stats-grid {
             grid-template-columns: 1fr;
-            gap: 16px;
-        }
-        
-        .stat-card {
-            padding: 20px;
-        }
-        
-        .stat-value {
-            font-size: 28px;
-        }
-        
-        /* Chart containers */
-        .chart-container {
-            padding: 20px;
-        }
-        
-        .chart-header {
-            flex-direction: column;
-            align-items: flex-start;
-        }
-        
-        .chart-title {
-            font-size: 16px;
-        }
-        
-        /* Date range buttons stack */
-        .date-range-buttons {
-            width: 100%;
-        }
-        
-        .date-btn {
-            flex: 1;
-            min-width: 80px;
-            padding: 8px 12px;
-            font-size: 12px;
-        }
-        
-        /* Table container */
-        .table-container {
-            padding: 16px;
-        }
-        
-        table {
-            font-size: 13px;
-        }
-        
-        th, td {
-            padding: 10px 8px;
-        }
-        
-        /* Image gallery becomes single column */
-        .image-gallery {
-            grid-template-columns: 1fr;
-        }
-        
-        .image-card img {
-            height: 180px;
-        }
-        
-        /* Form adjustments */
-        .form-container {
-            padding: 20px;
-        }
-        
-        .form-grid {
-            grid-template-columns: 1fr;
-            gap: 16px;
-        }
-        
-        /* Filter bar */
-        .filter-bar {
-            flex-direction: column;
-            align-items: stretch;
-        }
-        
-        .filter-bar select {
-            width: 100%;
-            min-width: unset;
-        }
-        
-        /* Buttons */
-        .btn {
-            width: 100%;
-            text-align: center;
-            padding: 14px 20px;
-        }
-        
-        /* Modal adjustments */
-        .modal-content {
-            margin: 10% 20px;
-            max-width: calc(100% - 40px);
-        }
-        
-        .close-modal {
-            top: -35px;
-            font-size: 28px;
-        }
-        
-        /* Image thumbs in table */
-        .image-thumb {
-            width: 80px;
-            height: 60px;
-        }
-    }
-    
-    /* Extra small devices */
-    @media (max-width: 480px) {
-        .mobile-menu-btn {
-            top: 15px;
-            left: 15px;
-            width: 44px;
-            height: 44px;
-            font-size: 24px;
-        }
-        
-        .main-content {
-            padding: 70px 12px 16px 12px;
         }
         
         .page-title {
-            font-size: 20px;
-        }
-        
-        .stat-icon {
-            width: 48px;
-            height: 48px;
-            font-size: 20px;
-        }
-        
-        .stat-value {
             font-size: 24px;
-        }
-        
-        .chart-container,
-        .table-container,
-        .form-container {
-            padding: 16px;
-        }
-        
-        .date-btn {
-            font-size: 11px;
-            padding: 6px 10px;
         }
     }
 </style>
 """
+
 # Shared Scripts
 SHARED_SCRIPTS = """
 <script>
-// Sidebar toggle for mobile
-function toggleSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const overlay = document.querySelector('.sidebar-overlay');
-    
-    sidebar.classList.toggle('open');
-    overlay.classList.toggle('active');
-}
-
-// Close sidebar when clicking overlay
-function closeSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const overlay = document.querySelector('.sidebar-overlay');
-    
-    sidebar.classList.remove('open');
-    overlay.classList.remove('active');
-}
-
-// Close sidebar when clicking any menu item (mobile only)
-document.addEventListener('DOMContentLoaded', function() {
-    const menuItems = document.querySelectorAll('.menu-item');
-    const isMobile = window.innerWidth <= 768;
-    
-    if (isMobile) {
-        menuItems.forEach(item => {
-            item.addEventListener('click', function() {
-                setTimeout(closeSidebar, 150);
-            });
-        });
-    }
-});
-
-// Image modal functions
 function openModal(imageSrc) {
     document.getElementById('imageModal').style.display = 'block';
     document.getElementById('modalImage').src = imageSrc;
-    document.body.style.overflow = 'hidden';
 }
 
 function closeModal() {
     document.getElementById('imageModal').style.display = 'none';
-    document.body.style.overflow = 'auto';
 }
 
 window.onclick = function(event) {
@@ -917,73 +609,28 @@ window.onclick = function(event) {
     }
 }
 
-// Close modal on escape key
-document.addEventListener('keydown', function(event) {
-    if (event.key === 'Escape') {
-        closeModal();
-    }
-});
-
 // Clipboard copy helper (device keys)
 function copyDeviceKey(el) {
     const key = el.getAttribute('data-key');
     if (!key) return;
-    
     navigator.clipboard.writeText(key).then(() => {
+        // show a small toast near the clicked element
         const toast = document.createElement('div');
-        toast.innerText = '✓ Device key copied!';
-        toast.style.cssText = `
-            position: fixed;
-            z-index: 9999;
-            right: 20px;
-            bottom: 20px;
-            padding: 12px 20px;
-            background: rgba(76, 217, 100, 0.9);
-            color: #fff;
-            border-radius: 10px;
-            font-size: 14px;
-            font-weight: 500;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            animation: slideInUp 0.3s ease;
-        `;
-        
+        toast.innerText = 'Device key copied to clipboard';
+        toast.style.position = 'fixed';
+        toast.style.zIndex = 9999;
+        toast.style.right = '20px';
+        toast.style.bottom = '20px';
+        toast.style.padding = '10px 14px';
+        toast.style.background = 'rgba(0,0,0,0.8)';
+        toast.style.color = '#fff';
+        toast.style.borderRadius = '8px';
         document.body.appendChild(toast);
-        
-        setTimeout(() => {
-            toast.style.animation = 'slideOutDown 0.3s ease';
-            setTimeout(() => toast.remove(), 300);
-        }, 2000);
+        setTimeout(() => { toast.remove(); }, 1800);
     }).catch(err => {
-        alert('Failed to copy: ' + err);
+        alert('Copy failed: ' + err);
     });
 }
-
-// Add toast animations
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideInUp {
-        from {
-            transform: translateY(100%);
-            opacity: 0;
-        }
-        to {
-            transform: translateY(0);
-            opacity: 1;
-        }
-    }
-    
-    @keyframes slideOutDown {
-        from {
-            transform: translateY(0);
-            opacity: 1;
-        }
-        to {
-            transform: translateY(100%);
-            opacity: 0;
-        }
-    }
-`;
-document.head.appendChild(style);
 </script>
 """
 
@@ -1199,13 +846,6 @@ LOGIN_HTML = """
 
 def admin_sidebar(active_page):
     return f"""
-    <!-- Mobile Menu Button -->
-    <i class="fas fa-bars mobile-menu-btn" onclick="toggleSidebar()"></i>
-    
-    <!-- Sidebar Overlay -->
-    <div class="sidebar-overlay" onclick="closeSidebar()"></div>
-    
-    <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-logo">
             <img src="/static/images/logo.png" alt="JP Global">
@@ -1968,13 +1608,6 @@ ADMIN_USERS_HTML = """
 
 def farmer_sidebar(active_page):
     return f"""
-    <!-- Mobile Menu Button -->
-    <i class="fas fa-bars mobile-menu-btn" onclick="toggleSidebar()"></i>
-    
-    <!-- Sidebar Overlay -->
-    <div class="sidebar-overlay" onclick="closeSidebar()"></div>
-    
-    <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-logo">
             <img src="/static/images/logo.png" alt="JP Global">
@@ -2004,6 +1637,7 @@ def farmer_sidebar(active_page):
         </div>
     </div>
     """
+
 FARMER_OVERVIEW_HTML = """
 <!DOCTYPE html>
 <html lang="en">
